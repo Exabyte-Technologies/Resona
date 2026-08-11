@@ -2,11 +2,11 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, abort, current_app, g, jsonify, request
 
-from .agent_runtime import run_agent
+from .agent_runtime import run_agent, trace_agent_debug
 from .closeai import API_KEY_PLACEHOLDER
 from .db import get_db
 from .security import login_required, require_csrf
-from .user_storage import create_snapshot, restore_snapshot, safe_path, write_user_file
+from .user_storage import create_snapshot, reset_user_ui, restore_snapshot, safe_path, write_user_file
 
 
 agent_bp = Blueprint("agent", __name__, url_prefix="/agent")
@@ -47,6 +47,7 @@ def modify():
     db = get_db()
     run = db.execute("INSERT INTO agent_runs(user_id, prompt, status) VALUES (?, ?, 'running')", (g.user["id"], prompt))
     db.commit()
+    trace_agent_debug("request_received", run_id=run.lastrowid, username=g.user["username"], user_prompt=prompt)
     snapshot = None
     try:
         context = agent_context()
@@ -70,6 +71,7 @@ def modify():
         )
         db.execute("UPDATE agent_runs SET summary = ?, status = 'complete' WHERE id = ?", (summary[:500], run.lastrowid))
         db.commit()
+        trace_agent_debug("request_completed", run_id=run.lastrowid, username=g.user["username"], snapshot=snapshot, summary=summary, steps=result["steps"], tools=result["tools"])
         return jsonify({
             "ok": True,
             "summary": summary,
@@ -80,6 +82,7 @@ def modify():
     except Exception as exc:
         db.execute("UPDATE agent_runs SET summary = ?, status = 'failed' WHERE id = ?", (str(exc)[:500], run.lastrowid))
         db.commit()
+        trace_agent_debug("request_failed", run_id=run.lastrowid, username=g.user["username"], snapshot=snapshot, error=f"{type(exc).__name__}: {exc}")
         current_app.logger.exception("Autonomous agent run failed")
         return jsonify({"ok": False, "error": str(exc), "snapshot": snapshot}), 422
 
@@ -93,3 +96,13 @@ def rollback(snapshot_id):
     except (ValueError, FileNotFoundError):
         abort(404)
     return jsonify({"ok": True})
+
+
+@agent_bp.post("/reset-ui")
+@login_required
+def reset_ui():
+    require_csrf()
+    snapshot = create_snapshot(g.user["username"])
+    reset_user_ui(g.user["username"])
+    trace_agent_debug("original_ui_restored", username=g.user["username"], snapshot=snapshot)
+    return jsonify({"ok": True, "snapshot": snapshot})

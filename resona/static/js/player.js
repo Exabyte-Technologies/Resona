@@ -13,34 +13,29 @@
     } else el.innerHTML = icon(el.dataset.icon);
   });
   document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); button.classList.add('active'); loader.classList.add('show'); frame.src = `/storage/${encodeURIComponent(username)}/${button.dataset.page.split('/').map(encodeURIComponent).join('/')}`; }));
-  frame.addEventListener('load', async () => {
-    loader.classList.remove('show');
-    try {
-      const doc = frame.contentDocument;
-      const statusText = doc.querySelector('[data-playback-status]');
-      doc.querySelectorAll('[data-band]').forEach(el => el.addEventListener('click', () => {
-        window.resonaAudio.setBeat(el.dataset.band);
-        doc.querySelectorAll('[data-band]').forEach(option => { const selected = option === el; option.classList.toggle('active', selected); option.setAttribute('aria-pressed', String(selected)); });
-        if (statusText) statusText.textContent = `${window.resonaAudio.playing ? 'Playing' : 'Ready'} · ${el.querySelector('strong')?.textContent || 'Binaural'} ${el.dataset.band} Hz`;
-      }));
-      doc.querySelectorAll('[data-playback-toggle]').forEach(play => {
-        const updatePlayState = active => {
-          play.classList.toggle('playing', active);
-          play.setAttribute('aria-pressed', String(active));
-          const label = play.querySelector('strong'); if (label) label.textContent = active ? 'Stop' : 'Play';
-          const symbol = play.querySelector('.play-symbol'); if (symbol) symbol.textContent = active ? '■' : '▶';
-          if (statusText) { const selected = doc.querySelector('[data-band].active'); statusText.textContent = `${active ? 'Playing' : 'Ready'} · ${selected?.querySelector('strong')?.textContent || 'Theta'} ${selected?.dataset.band || window.resonaAudio.config.beat} Hz`; }
-        };
-        updatePlayState(window.resonaAudio.playing);
-        play.addEventListener('click', () => updatePlayState(window.resonaAudio.toggle()));
-      });
-      doc.querySelectorAll('[data-noise]').forEach(el => el.addEventListener('click', () => window.resonaAudio.setNoise(el.dataset.noise)));
-      doc.querySelectorAll('[data-audio]').forEach(el => el.addEventListener('input', () => window.resonaAudio.setLayer(el.dataset.audio, el.value)));
-      const profile = await fetch('/player/api/profile').then(r => r.json());
-      doc.querySelectorAll('[data-profile="username"]').forEach(el => el.textContent = profile.username);
-      doc.querySelectorAll('[data-profile="storage"]').forEach(el => el.textContent = `${(profile.storage_used / 1048576).toFixed(1)} MB`);
-      if (doc.querySelector('#history-list')) { const history = await fetch('/player/api/history').then(r => r.json()); if (history.length) doc.querySelector('#history-list').innerHTML = history.map(item => `<div class="card"><strong>${escapeHtml(item.title)}</strong><span>${item.created_at.slice(0,16).replace('T',' ')} · ${item.duration_seconds || 0}s</span></div>`).join(''); }
-    } catch (_) { showFallback(); }
+  const sendToPage = (type, payload = {}) => frame.contentWindow?.postMessage({ type, ...payload }, '*');
+  const sendAudioState = () => sendToPage('resona:audio-state', { playing:window.resonaAudio.playing, ambientPlaying:window.resonaAudio.ambientPlaying, noisePlaying:window.resonaAudio.noisePlaying, config:window.resonaAudio.config });
+  frame.addEventListener('load', () => { loader.classList.remove('show'); sendAudioState(); });
+  window.addEventListener('message', async event => {
+    if (event.source !== frame.contentWindow || !event.data || typeof event.data !== 'object') return;
+    const data = event.data;
+    if (data.type === 'resona:audio') {
+      if (data.action === 'toggle') window.resonaAudio.toggle();
+      else if (data.action === 'setBeat' && Number.isFinite(Number(data.value))) window.resonaAudio.setBeat(Math.max(.1, Math.min(100, Number(data.value))));
+      else if (data.action === 'setNoise' && ['white','pink','brown','rain','ocean','forest'].includes(data.value)) { const restartsNoise = window.resonaAudio.noisePlaying; window.resonaAudio.setNoise(data.value); if (restartsNoise) setTimeout(sendAudioState, 950); }
+      else if (data.action === 'setLayer' && typeof data.name === 'string' && Number.isFinite(Number(data.value))) window.resonaAudio.setLayer(data.name, Math.max(0, Math.min(100, Number(data.value))));
+      else if (data.action === 'setVolume' && ['binaural','ambient','noise'].includes(data.name || data.volumeType) && Number.isFinite(Number(data.value ?? data.volumeValue))) window.resonaAudio.setVolume(data.name || data.volumeType, Math.max(0, Math.min(100, Number(data.value ?? data.volumeValue))));
+      else if (data.action === 'toggleAmbient') window.resonaAudio.toggleAmbient();
+      else if (data.action === 'setAmbient' && ['drone','pads','textures','melody','spatial'].includes(data.name) && Number.isFinite(Number(data.value))) window.resonaAudio.setAmbient(data.name, Math.max(0, Math.min(100, Number(data.value))));
+      else if (data.action === 'toggleNoise') window.resonaAudio.toggleNoise();
+      sendAudioState();
+    } else if (data.type === 'resona:request' && data.resource === 'profile') {
+      const profile = await fetch('/player/api/profile').then(response => response.json());
+      sendToPage('resona:profile', { profile });
+    } else if (data.type === 'resona:request' && data.resource === 'history') {
+      const history = await fetch('/player/api/history').then(response => response.json());
+      sendToPage('resona:history', { history });
+    }
   });
   frame.addEventListener('error', showFallback);
   function openSheet(){ sheet.classList.add('open'); backdrop.classList.add('open'); setTimeout(() => prompt.focus(), 350); }
@@ -50,9 +45,9 @@
   const recognition = window.SpeechRecognition || window.webkitSpeechRecognition; const voice = document.querySelector('#voice-button');
   if (recognition) { const listener = new recognition(); listener.interimResults = true; listener.continuous = false; listener.onstart = () => { voice.classList.add('listening'); document.querySelector('#agent-orb').classList.add('listening'); status.textContent = 'Listening…'; }; listener.onresult = e => { prompt.value = Array.from(e.results).map(r => r[0].transcript).join(''); }; listener.onend = () => { voice.classList.remove('listening'); document.querySelector('#agent-orb').classList.remove('listening'); status.textContent = ''; }; voice.addEventListener('click', () => listener.start()); } else voice.hidden = true;
   document.querySelector('#agent-form').addEventListener('submit', async event => { event.preventDefault(); const value = prompt.value.trim(); if (!value) return; status.innerHTML = '<span class="thinking"></span> Inspecting files and working until your request is complete…'; event.currentTarget.classList.add('busy'); try { const response = await api('/agent/modify', {method:'POST', body:JSON.stringify({prompt:value,credential:PROVIDER_CREDENTIAL_PLACEHOLDER})}); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Modification failed'); status.textContent = `${data.summary} · ${data.steps} agent steps`; setTimeout(() => location.reload(), 1500); } catch (error) { status.textContent = error.message; event.currentTarget.classList.remove('busy'); } });
+  document.querySelector('#reset-original-ui').addEventListener('click', async event => { if (!window.confirm('Restore the original Resona UI? Your account, memories, history, and a recovery snapshot will be kept.')) return; const button = event.currentTarget; button.disabled = true; try { const response = await api('/agent/reset-ui', {method:'POST', body:'{}'}); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'The original UI could not be restored'); button.querySelector('span').textContent = 'Restored'; location.reload(); } catch (error) { button.disabled = false; toast(error.message); } });
   function showFallback(){ document.querySelector('#fallback-alert').classList.add('open'); backdrop.classList.add('open'); }
   document.querySelector('#dismiss-fallback').addEventListener('click', () => { document.querySelector('#fallback-alert').classList.remove('open'); backdrop.classList.remove('open'); });
   document.querySelector('#reset-last').addEventListener('click', async () => { const snapshots = await fetch('/player/api/snapshots').then(r=>r.json()); if (!snapshots.length) return toast('No earlier preset is available'); const response = await api(`/agent/rollback/${snapshots[0]}`, {method:'POST', body:'{}'}); if(response.ok) location.reload(); else toast('Reset failed'); });
   function toast(message){ const el = document.createElement('div'); el.className='toast'; el.textContent=message; document.body.append(el); setTimeout(()=>el.remove(),2600); }
-  function escapeHtml(value){ const el=document.createElement('div'); el.textContent=value; return el.innerHTML; }
 })();

@@ -4,12 +4,13 @@
   <header class="player-top">
     <a class="brand" href="{{ url_for('player.index') }}">resona<span>.</span></a>
     <div class="player-actions">
+      <button class="reset-ui-button" id="reset-original-ui" type="button" aria-label="Restore original UI"><svg viewBox="0 0 24 24"><path d="M4 8v5h5M5.5 12a7 7 0 1 0 2-5L4 8"/></svg><span>Original UI</span></button>
       <form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="logout-button" type="submit" aria-label="Log out"><svg viewBox="0 0 24 24"><path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4m5-4 4-3-4-3m4 3H9"/></svg><span>Log out</span></button></form>
     </div>
   </header>
 
   <main class="player-stage">
-    <section class="dynamic-frame-wrap"><iframe id="dynamic-page" title="Resona page" sandbox="allow-same-origin" src="{{ url_for('storage.asset', username=g.user.username, asset_path=nav.default_page) }}"></iframe><div id="frame-loading" class="frame-loading"><span></span><p>Tuning your space…</p></div></section>
+    <section class="dynamic-frame-wrap"><iframe id="dynamic-page" title="Resona page" sandbox="allow-scripts" src="{{ url_for('storage.asset', username=g.user.username, asset_path=nav.default_page) }}"></iframe><div id="frame-loading" class="frame-loading"><span></span><p>Tuning your space…</p></div></section>
   </main>
 
   <nav class="bottom-nav" aria-label="Resona pages">

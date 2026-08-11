@@ -22,6 +22,7 @@ def create_app(test_config=None):
         CLOSEAI_API_KEY=os.getenv("CLOSEAI_API_KEY", ""),
         CLOSEAI_MODEL=os.getenv("CLOSEAI_MODEL", "gpt-4o-mini"),
         AGENT_MAX_STEPS=int(os.getenv("AGENT_MAX_STEPS", "80")),
+        AGENT_TRACE=False,
         ADMIN_USERNAME=os.getenv("ADMIN_USERNAME", "admin").strip().lower(),
         ADMIN_PASSWORD=os.getenv("ADMIN_PASSWORD", ""),
         ADMIN_EMAIL=os.getenv("ADMIN_EMAIL", "").strip().lower(),
