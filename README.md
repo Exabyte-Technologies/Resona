@@ -12,7 +12,8 @@ Resona is an adaptive healing-music web application. It combines a procedural We
 - Multi-turn autonomous agent runtime with list, read, write, replace, move, delete, navigation, validation, and registered-skill tools
 - Per-user 1 GB quotas, authenticated storage routes, path isolation, snapshots, and rollback
 - Server-side CloseAI proxying with a client credential placeholder and OpenAI-compatible chat integration
-- Admin controls for the shared provider configuration, users, prompts, skills, and additional admins
+- Resend-powered registration welcome emails and secure password reset links
+- Admin controls for shared AI and email provider configuration, users, prompts, skills, and additional admins
 
 ## Local setup
 
@@ -33,6 +34,8 @@ python run.py debug
 This enables Flask debug mode and prints each user's AI prompt, step progress, model response, tool call and arguments, tool result, validation event, and final outcome. Large strings are truncated and credentials, API keys, passwords, tokens, authorization headers, and secrets are redacted. A normal `python run.py` launch keeps agent tracing disabled.
 
 Set `SECRET_KEY` before deployment. To enable Vibe Agent calls, either set `CLOSEAI_API_KEY` on the server or save it from the admin control center. Browsers send only the literal `{{RESONA_SERVER_API_KEY}}` placeholder; Resona resolves the active server key, base URL, and model and makes the provider request itself. No provider key is generated for or exposed to an individual user. User workspaces default to `instance/storage`; use `RESONA_STORAGE_ROOT` to mount a dedicated server volume.
+
+To enable email, save a Resend API key, sender name, and sender email in the admin control center, or set `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and `RESEND_FROM_NAME` on the server. Registration sends a welcome email without blocking account access if delivery fails. Password recovery sends a single-use link that expires after 30 minutes and keeps the response identical for known and unknown addresses. Set `PUBLIC_BASE_URL` to the public HTTPS origin in production so emailed links always use the canonical application address. The sender domain must be verified in Resend.
 
 When `ADMIN_PASSWORD` is non-empty, startup creates or synchronizes the administrator named by `ADMIN_USERNAME` (default `admin`). `ADMIN_EMAIL` is optional and defaults to `<username>@resona.local`. Restart the application after changing these values.
 

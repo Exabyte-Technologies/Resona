@@ -5,6 +5,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .closeai import get_provider_settings, validate_base_url
 from .db import get_db
+from .resend import get_resend_settings
 from .security import USERNAME_RE, admin_required, require_csrf
 from .user_storage import delete_user_storage, initialize_user_storage, rename_user_storage, usage_bytes
 
@@ -46,13 +47,21 @@ def dashboard():
         "key_configured": bool(provider_settings["api_key"]),
         "agent_max_steps": int((db.execute("SELECT value FROM settings WHERE key = 'agent_max_steps'").fetchone()["value"] or current_app.config["AGENT_MAX_STEPS"])),
     }
+    resend_settings = get_resend_settings()
+    resend = {
+        "from_email": resend_settings["from_email"],
+        "from_name": resend_settings["from_name"],
+        "key_source": resend_settings["key_source"],
+        "key_configured": bool(resend_settings["api_key"]),
+        "ready": bool(resend_settings["api_key"] and resend_settings["from_email"]),
+    }
     stats = {
         "users": len(users),
         "storage": sum(user["storage_used"] for user in users),
         "runs": db.execute("SELECT COUNT(*) AS count FROM agent_runs").fetchone()["count"],
         "failures": db.execute("SELECT COUNT(*) AS count FROM agent_runs WHERE status = 'failed'").fetchone()["count"],
     }
-    return render_template("admin/dashboard.html", users=users, skills=skills, system_prompt=prompt, stats=stats, provider=provider)
+    return render_template("admin/dashboard.html", users=users, skills=skills, system_prompt=prompt, stats=stats, provider=provider, resend=resend)
 
 
 @admin_bp.post("/users/<int:user_id>/edit")
@@ -170,6 +179,34 @@ def update_provider():
         flash("Server provider settings updated.", "success")
     except ValueError as exc:
         flash(str(exc), "error")
+    return redirect(url_for("admin.dashboard"))
+
+
+@admin_bp.post("/resend")
+@admin_required
+def update_resend():
+    require_csrf()
+    from_email = request.form.get("from_email", "").strip().lower()
+    from_name = request.form.get("from_name", "").strip()
+    api_key = request.form.get("api_key", "").strip()
+    clear_key = request.form.get("clear_api_key") == "1"
+    if "@" not in from_email or len(from_email) > 254:
+        flash("Enter a valid Resend sender email address.", "error")
+        return redirect(url_for("admin.dashboard"))
+    if not from_name or len(from_name) > 100:
+        flash("Enter a sender name of no more than 100 characters.", "error")
+        return redirect(url_for("admin.dashboard"))
+    if api_key and (not api_key.startswith("re_") or len(api_key) > 250):
+        flash("Enter a valid Resend API key beginning with re_.", "error")
+        return redirect(url_for("admin.dashboard"))
+
+    db = get_db()
+    db.execute("INSERT INTO settings(key, value) VALUES ('resend_from_email', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP", (from_email,))
+    db.execute("INSERT INTO settings(key, value) VALUES ('resend_from_name', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP", (from_name,))
+    if api_key or clear_key:
+        db.execute("INSERT INTO settings(key, value) VALUES ('resend_api_key', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP", ("" if clear_key else api_key,))
+    db.commit()
+    flash("Resend email settings updated.", "success")
     return redirect(url_for("admin.dashboard"))
 
 

@@ -48,6 +48,114 @@ def test_registration_creates_isolated_default_workspace(app, registered):
     assert b'id="reset-original-ui"' in response.data
 
 
+def test_resend_sends_registration_and_password_reset_emails_without_exposing_secrets(app, client, monkeypatch):
+    captured = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"id": "email-test-id"}
+
+    def fake_post(url, **kwargs):
+        captured.append({"url": url, **kwargs})
+        return Response()
+
+    monkeypatch.setattr("resona.resend.requests.post", fake_post)
+    with app.app_context():
+        db = get_db()
+        for key, value in (
+            ("resend_api_key", "re_server_only"),
+            ("resend_from_email", "hello@resona.example"),
+            ("resend_from_name", "Resona Care"),
+        ):
+            db.execute("UPDATE settings SET value = ? WHERE key = ?", (value, key))
+        db.commit()
+
+    token = client.get("/auth/register")
+    assert token.status_code == 200
+    response = client.post("/auth/register", data={
+        "csrf_token": session_csrf(client),
+        "username": "emailuser",
+        "email": "emailuser@example.com",
+        "password": "healing-sound-123",
+    })
+    assert response.status_code == 302
+    assert captured[0]["url"] == "https://api.resend.com/emails"
+    assert captured[0]["headers"]["Authorization"] == "Bearer re_server_only"
+    assert captured[0]["json"]["from"] == "Resona Care <hello@resona.example>"
+    assert captured[0]["json"]["to"] == ["emailuser@example.com"]
+    assert captured[0]["json"]["subject"] == "Welcome to Resona"
+
+    client.post("/auth/logout", data={"csrf_token": session_csrf(client)})
+    client.get("/auth/forgot")
+    response = client.post("/auth/forgot", data={
+        "csrf_token": session_csrf(client),
+        "email": "emailuser@example.com",
+    })
+    assert response.status_code == 200
+    assert b"Development reset link" not in response.data
+    reset_request = captured[1]
+    assert reset_request["headers"]["Authorization"] == "Bearer re_server_only"
+    assert "https://resona.test/auth/reset/" in reset_request["json"]["text"]
+    assert "re_server_only" not in response.get_data(as_text=True)
+
+
+def test_admin_manages_resend_settings_without_rendering_api_key(app, client):
+    from werkzeug.security import generate_password_hash
+
+    with app.app_context():
+        db = get_db()
+        admin_id = db.execute(
+            "INSERT INTO users(username,email,password_hash,is_admin) VALUES (?,?,?,1)",
+            ("mailadmin", "mailadmin@example.com", generate_password_hash("long-admin-password", method="pbkdf2:sha256:600000")),
+        ).lastrowid
+        db.commit()
+    with client.session_transaction() as session:
+        session["user_id"] = admin_id
+        session["csrf_token"] = "admin-email-csrf"
+
+    response = client.post("/admin/resend", data={
+        "csrf_token": "admin-email-csrf",
+        "from_name": "Resona Mail",
+        "from_email": "noreply@resona.example",
+        "api_key": "re_admin_secret",
+    })
+    assert response.status_code == 302
+    dashboard = client.get("/admin/")
+    assert b"Email ready" in dashboard.data
+    assert b"Configured via admin" in dashboard.data
+    assert b"noreply@resona.example" in dashboard.data
+    assert b"re_admin_secret" not in dashboard.data
+    with app.app_context():
+        assert get_db().execute("SELECT value FROM settings WHERE key = 'resend_api_key'").fetchone()["value"] == "re_admin_secret"
+
+
+def test_resend_delivery_failure_does_not_block_registration(app, client, monkeypatch):
+    def fail_delivery(*_args, **_kwargs):
+        raise RuntimeError("delivery unavailable")
+
+    monkeypatch.setattr("resona.resend.requests.post", fail_delivery)
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE settings SET value = 're_failing_key' WHERE key = 'resend_api_key'")
+        db.execute("UPDATE settings SET value = 'hello@resona.example' WHERE key = 'resend_from_email'")
+        db.commit()
+
+    client.get("/auth/register")
+    response = client.post("/auth/register", data={
+        "csrf_token": session_csrf(client),
+        "username": "mailfailure",
+        "email": "mailfailure@example.com",
+        "password": "healing-sound-123",
+    })
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/player/")
+    with app.app_context():
+        assert get_db().execute("SELECT id FROM users WHERE username = 'mailfailure'").fetchone()
+
+
 def test_original_ui_button_resets_only_ui_and_keeps_recovery_data(app, registered):
     from resona.user_storage import default_home_page, safe_path, write_user_file
 

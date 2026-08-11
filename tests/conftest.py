@@ -12,6 +12,10 @@ def app(tmp_path):
         "DATABASE": str(tmp_path / "test.sqlite3"),
         "STORAGE_ROOT": str(tmp_path / "storage"),
         "CLOSEAI_API_KEY": "",
+        "RESEND_API_KEY": "",
+        "RESEND_FROM_EMAIL": "",
+        "RESEND_FROM_NAME": "Resona",
+        "PUBLIC_BASE_URL": "https://resona.test",
         "ADMIN_PASSWORD": "",
     })
     yield app

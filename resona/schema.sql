@@ -58,3 +58,6 @@ INSERT OR IGNORE INTO settings(key, value) VALUES ('closeai_api_key', '');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('closeai_base_url', '');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('closeai_model', '');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('agent_max_steps', '');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('resend_api_key', '');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('resend_from_email', '');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('resend_from_name', '');

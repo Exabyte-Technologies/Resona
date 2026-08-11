@@ -6,6 +6,7 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db
+from .resend import resend_is_configured, send_password_reset_email, send_welcome_email
 from .security import USERNAME_RE, login_required, require_csrf
 from .user_storage import initialize_user_storage
 
@@ -36,6 +37,11 @@ def register():
                 )
                 db.commit()
                 initialize_user_storage(username)
+                if resend_is_configured():
+                    try:
+                        send_welcome_email(email, username)
+                    except Exception:
+                        current_app.logger.exception("Resend could not deliver the registration email for user %s", username)
                 session.clear()
                 session["user_id"] = cursor.lastrowid
                 session["csrf_token"] = secrets.token_urlsafe(32)
@@ -82,7 +88,7 @@ def forgot():
     reset_token = None
     if request.method == "POST":
         require_csrf()
-        user = get_db().execute("SELECT id FROM users WHERE email = ?", (request.form.get("email", "").strip().lower(),)).fetchone()
+        user = get_db().execute("SELECT id, username, email FROM users WHERE email = ?", (request.form.get("email", "").strip().lower(),)).fetchone()
         if user:
             token = secrets.token_urlsafe(36)
             digest = hashlib.sha256(token.encode()).hexdigest()
@@ -90,9 +96,19 @@ def forgot():
             db = get_db()
             db.execute("INSERT INTO password_resets(user_id, token_hash, expires_at) VALUES (?, ?, ?)", (user["id"], digest, expires))
             db.commit()
-            if current_app.debug or current_app.testing:
+            delivered = False
+            if resend_is_configured():
+                public_base_url = current_app.config.get("PUBLIC_BASE_URL", "").rstrip("/")
+                reset_path = url_for("auth.reset", token=token)
+                reset_url = public_base_url + reset_path if public_base_url else url_for("auth.reset", token=token, _external=True)
+                try:
+                    send_password_reset_email(user["email"], user["username"], reset_url)
+                    delivered = True
+                except Exception:
+                    current_app.logger.exception("Resend could not deliver a password reset email for user %s", user["username"])
+            if not delivered and (current_app.debug or current_app.testing):
                 reset_token = token
-        flash("If the address exists, a reset link has been prepared.", "success")
+        flash("If the address exists, password reset instructions have been sent.", "success")
     return render_template("auth/forgot.html", reset_token=reset_token)
 
 
