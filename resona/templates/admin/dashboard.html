@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}Control center · Resona{% endblock %}
+{% block body_class %}admin-body{% endblock %}
+{% block body %}
+<header class="admin-top">
+  <a class="brand" href="{{ url_for('admin.dashboard') }}">resona<span>.</span> <small>control</small></a>
+  <div><span>{{ g.user.username }}</span><form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="ghost">Sign out</button></form></div>
+</header>
+<main class="admin-main">
+  <section class="admin-hero"><p class="kicker">System overview</p><h1>Control center</h1><p>Manage the people, provider, prompts, and capabilities shaping Resona.</p></section>
+  <section class="stat-grid">
+    <article><span>Listeners</span><strong>{{ stats.users }}</strong></article>
+    <article><span>AI modifications</span><strong>{{ stats.runs }}</strong></article>
+    <article><span>Storage used</span><strong>{{ '%.1f'|format(stats.storage / 1048576) }} MB</strong></article>
+    <article><span>Failed runs</span><strong>{{ stats.failures }}</strong></article>
+  </section>
+  <div class="admin-grid">
+    <section class="admin-card wide">
+      <p class="kicker">Server-side proxy</p><h2>CloseAI provider</h2>
+      <p class="muted">The browser sends a placeholder. Resona replaces it with this server-owned credential and calls CloseAI on the user's behalf.</p>
+      <form method="post" action="{{ url_for('admin.update_provider') }}" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>API base URL<input type="url" name="base_url" value="{{ provider.base_url }}" required></label>
+        <label>Model<input name="model" value="{{ provider.model }}" required></label>
+        <label>Maximum agent steps<input type="number" name="agent_max_steps" min="1" max="200" value="{{ provider.agent_max_steps }}" required><small>The default is 80. The agent sees its current step and remaining budget so it can work efficiently without skipping validation.</small></label>
+        <label>API key<input type="password" name="api_key" autocomplete="new-password" placeholder="{{ 'Configured via ' ~ provider.key_source if provider.key_configured else 'Paste server API key' }}"><small>The current key is never displayed or sent to users.</small></label>
+        {% if provider.key_configured and provider.key_source == 'admin' %}<label class="check-label"><input type="checkbox" name="clear_api_key" value="1"> Clear the saved admin key and fall back to the environment</label>{% endif %}
+        <button class="primary">Save provider settings</button>
+      </form>
+    </section>
+    <section class="admin-card wide">
+      <p class="kicker">Accounts</p><h2>User management</h2>
+      <div class="table-wrap"><table><thead><tr><th>User</th><th>Storage</th><th>AI access</th><th>Joined</th><th>Actions</th></tr></thead><tbody>
+      {% for user in users %}<tr><td><strong>{{ user.username }}</strong><small>{{ user.email }}{% if user.is_admin %} · Admin{% endif %}</small></td><td>{{ '%.1f'|format(user.storage_used / 1048576) }} MB / 1 GB</td><td><span class="status {{ 'on' if provider.key_configured else '' }}">{{ 'Server proxy' if provider.key_configured else 'Provider offline' }}</span></td><td>{{ user.created_at[:10] }}</td><td><details class="user-editor"{% if request.args.get('user') == user.id|string %} open{% endif %}><summary>Edit</summary><div class="user-editor-panel"><form method="post" action="{{ url_for('admin.edit_user', user_id=user.id) }}" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Username<input name="username" value="{{ user.username }}" required pattern="[a-z0-9][a-z0-9_-]{2,31}"></label><label>Email<input type="email" name="email" value="{{ user.email }}" required></label><label>New password<input type="password" name="password" minlength="10" autocomplete="new-password" placeholder="Leave blank to keep current password"></label><label class="check-label"><input type="checkbox" name="is_admin" value="1"{% if user.is_admin %} checked{% endif %}> Administrator access</label><button class="primary" type="submit">Save changes</button></form><form method="post" action="{{ url_for('admin.delete_user', user_id=user.id) }}" class="delete-user-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><p><strong>Delete account</strong><small>This permanently removes the account, sessions, history, AI records, and private workspace.</small></p><label>Type <b>{{ user.username }}</b> to confirm<input name="confirm_username" required autocomplete="off"></label><button class="danger" type="submit">Delete {{ user.username }}</button></form></div></details></td></tr>{% endfor %}
+      </tbody></table></div>
+    </section>
+    <section class="admin-card"><p class="kicker">Prompt engineering</p><h2>Base agent prompt</h2><form method="post" action="{{ url_for('admin.update_prompt') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><textarea name="system_prompt" rows="10">{{ system_prompt }}</textarea><button class="primary">Save prompt</button></form></section>
+    <section class="admin-card"><p class="kicker">Capabilities</p><h2>Inject a skill</h2><form method="post" action="{{ url_for('admin.add_skill') }}" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Name<input name="name" required></label><label>Description<textarea name="description" rows="3" required></textarea></label><label>Endpoint<input name="endpoint" placeholder="Optional API endpoint"></label><label>Scope<select name="scope"><option value="global">All users</option><option value="user">One user</option></select></label><label>User<select name="user_id"><option value="">Select if user-scoped</option>{% for user in users %}<option value="{{ user.id }}">{{ user.username }}</option>{% endfor %}</select></label><button class="primary">Register skill</button></form></section>
+    <section class="admin-card"><p class="kicker">Delegation</p><h2>Add an admin</h2><form method="post" action="{{ url_for('admin.add_admin') }}" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Username<input name="username" required></label><label>Email<input type="email" name="email" required></label><label>Temporary password<input type="password" name="password" minlength="10" required></label><button class="primary">Create admin</button></form></section>
+    <section class="admin-card"><p class="kicker">Skill registry</p><h2>{{ skills|length }} installed</h2><div class="skill-list">{% for skill in skills %}<article><strong>{{ skill.name }}</strong><span>{{ skill.description }}</span><small>{{ skill.scope }}{% if skill.username %} · {{ skill.username }}{% endif %}</small></article>{% else %}<p class="muted">No custom skills yet.</p>{% endfor %}</div></section>
+  </div>
+</main>
+{% endblock %}

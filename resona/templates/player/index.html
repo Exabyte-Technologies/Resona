@@ -1,0 +1,41 @@
+{% extends 'base.html' %}{% block title %}Resona · Your healing space{% endblock %}{% block body_class %}player-body{% endblock %}
+{% block body %}
+<div id="app" data-username="{{ g.user.username }}" data-csrf="{{ csrf_token }}">
+  <header class="player-top">
+    <a class="brand" href="{{ url_for('player.index') }}">resona<span>.</span></a>
+    <div class="player-actions">
+      <form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="logout-button" type="submit" aria-label="Log out"><svg viewBox="0 0 24 24"><path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4m5-4 4-3-4-3m4 3H9"/></svg><span>Log out</span></button></form>
+    </div>
+  </header>
+
+  <main class="player-stage">
+    <section class="dynamic-frame-wrap"><iframe id="dynamic-page" title="Resona page" sandbox="allow-same-origin" src="{{ url_for('storage.asset', username=g.user.username, asset_path=nav.default_page) }}"></iframe><div id="frame-loading" class="frame-loading"><span></span><p>Tuning your space…</p></div></section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Resona pages">
+    <div class="nav-scroll" id="nav-items">
+    {% for item in nav.nav_items %}
+      <button class="nav-item {{ 'active' if item.target_html == nav.default_page else '' }}" data-page="{{ item.target_html }}" data-id="{{ item.id }}"><span class="nav-icon" data-icon="{{ item.icon|default('circle') }}"{% if item.icon_path %} data-icon-path="{{ item.icon_path }}"{% endif %}></span><small>{{ item.label }}</small></button>
+      {% if loop.index == ((nav.nav_items|length + 1) // 2) %}<span class="mic-gap" aria-hidden="true"></span>{% endif %}
+    {% endfor %}
+    </div>
+    <button class="mic-button" id="mic-button" aria-label="Open Resona agent"><span class="mic-rings"></span><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm-7-3a1 1 0 0 1 2 0 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.92V21h3a1 1 0 0 1 0 2H8a1 1 0 0 1 0-2h3v-2.08A7 7 0 0 1 5 12z"/></svg></button>
+  </nav>
+
+  <div class="sheet-backdrop" id="sheet-backdrop"></div>
+  <section class="agent-sheet" id="agent-sheet" role="dialog" aria-modal="true" aria-labelledby="agent-title">
+    <button class="sheet-close" id="sheet-close" aria-label="Close">×</button>
+    <div class="agent-orb" id="agent-orb" aria-hidden="true"><span></span><span></span><span></span><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm-7-3a1 1 0 0 1 2 0 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.92V21a1 1 0 0 1-2 0v-2.08A7 7 0 0 1 5 12z"/></svg></div>
+    <div class="agent-copy"><p class="kicker">Resona vibe agent</p><h2 id="agent-title">How can I help you heal today?</h2><p>Speak or type to dynamically reshape your interface, themes, or musical compositions.</p></div>
+    <div class="prompt-examples" id="prompt-examples"><button>“Create a 432 Hz sleep timer preset with ambient rain.”</button><button>“Simplify the UI for night mode and add a deep relaxation tab.”</button><button>“Boost the binaural alpha waves and add an ambient sound pad.”</button></div>
+    <form id="agent-form" class="agent-input"><textarea id="agent-prompt" rows="1" maxlength="4000" placeholder="Tell Resona what you need…"></textarea><button type="button" id="voice-button" aria-label="Speak prompt"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm-7-3a1 1 0 0 1 2 0 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.92V21a1 1 0 0 1-2 0v-2.08A7 7 0 0 1 5 12z"/></svg></button><button type="submit" class="send-prompt" aria-label="Send prompt">↑</button></form>
+    <div class="agent-status" id="agent-status" aria-live="polite"></div>
+  </section>
+
+  <section class="fallback-alert" id="fallback-alert" role="alertdialog" aria-modal="true"><span>Something fell out of tune</span><h2>Your custom interface could not load.</h2><p>The last working version is still available.</p><div><button class="ghost" id="dismiss-fallback">Keep current view</button><button class="primary" id="reset-last">Reset to Last Working Preset</button></div></section>
+</div>
+<script id="nav-data" type="application/json">{{ nav|tojson }}</script>
+<script src="{{ url_for('storage.asset', username=g.user.username, asset_path='static/custom_synth.js') }}"></script>
+<script src="{{ url_for('static', filename='js/audio.js') }}"></script>
+<script src="{{ url_for('static', filename='js/player.js') }}"></script>
+{% endblock %}
