@@ -31,6 +31,14 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Verify deployment revision
+        run: |
+          echo "Deployment revision: $GITHUB_SHA"
+          echo "Finalizer transport: streamed-v2"
+          bash -n deploy/bootstrap-ubuntu.sh
+          bash -n deploy/finalize-ubuntu.sh
+          bash -n deploy/certbot-reload-nginx.sh
+
       - name: Test application
         run: |
           python3 -m venv /tmp/resona-test-venv
