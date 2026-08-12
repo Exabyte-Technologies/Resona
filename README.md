@@ -8,8 +8,8 @@ Resona is an adaptive healing-music web application. It combines a procedural We
 - Registration, login, password reset flow, profiles, session history, and a separate admin login
 - A simplified default Home page plus a full Advanced audio page, driven by each user's private `nav.json`
 - A sandbox-safe `window.ResonaFiles` API for persistent front-end text, uploads, folders, reads, moves, and deletes inside each user's private `data/` directory
-- Continuous binaural, colored-noise, and polyphonic Web Audio synthesis
-- A private browser-side LSTM chord generator that retunes the ambient pads without a generation API
+- Continuous binaural and colored-noise synthesis plus a six-layer ambient Web Audio synth with drone, harmonic pad, analog drift, weather texture, shimmer, felt accents, and a full spatial effects chain
+- Atmosphere, tonal-centre, and accessible rotary controls, with a private browser-side LSTM chord generator that can conduct every pitched synth layer without a generation API
 - Voice or text Vibe Agent interface with validated HTML, CSS, JS, JSON, SVG, and Markdown writes
 - A fail-closed prompt safety review that rejects potentially harmful, illegal, abusive, privacy-invasive, or safeguard-evasion requests before snapshots or agent execution
 - Multi-turn autonomous agent runtime with list, read, write, replace, move, delete, navigation, validation, and registered-skill tools
@@ -49,6 +49,8 @@ When `ADMIN_PASSWORD` is non-empty, startup creates or synchronizes the administ
 The Vibe Agent continues calling the model and workspace tools until it explicitly finishes with a valid workspace. `AGENT_MAX_STEPS` defaults to 80 and can be adjusted from 1–200 in the admin provider panel. On every turn the agent receives its current step, total limit, and remaining budget, with instructions to avoid redundant work without rushing or skipping validation. Every run creates one rollback snapshot before the first tool call. Registered HTTPS skills are exposed through `invoke_skill`; the server credential is attached only for approved CloseAI hosts, and direct image or audio results can be saved into the user's quota-controlled storage.
 
 Sandboxed user pages can persist application data through the injected `window.ResonaFiles` bridge. Its Promise-based methods are `list`, `read`, `write`, `upload`, `mkdir`, `move`, and `delete`; all paths are relative to the current user's private `data/` directory. Requests are relayed through the authenticated player shell with CSRF, path, extension, per-file size, and account-quota validation. The Vibe Agent receives the complete API contract in its system instructions so it can build durable journals, settings, collections, and upload interfaces without direct network or session access.
+
+The ambient engine is implemented with the native Web Audio API and uses six independently generated layers followed by mud and air EQ, saturation, chorus, compression, a generated 9.5-second convolution reverb, filtered delay, limiting, and analysis. Manual harmony follows the selected Restore, Melancholy, or Deep meditation atmosphere and C/D/E-flat/F/G/A tonal centre. Generated harmony disables that internal cycle and retunes all pitched layers while leaving weather texture and the independent noise generator untuned. The synth Output control is a pre-mixer trim; ambient and master volume remain separate.
 
 The trained chord checkpoint is exported with `scripts/export_chord_model.py` into a browser-readable float32 tensor package. Each user receives the roughly 3 MB package in `static/chord-model/`, counted against their private storage quota. The player downloads those authenticated static files and performs the LSTM forward pass, top-k sampling, and chord decoding entirely in JavaScript; there is no chord-generation backend endpoint. The model is the supplied triad LSTM (not a Transformer) with 3,861 chord labels and a 50-chord maximum context.
 

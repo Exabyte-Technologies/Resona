@@ -103,9 +103,13 @@ def test_registration_creates_isolated_default_workspace(app, registered):
         assert "data-playback-toggle" in advanced
         assert "data-band=\"6\"" in advanced
         assert "Ambient music generator" in advanced
-        assert "data-ambient=\"drone\"" in advanced
-        assert "data-drone-frequency" in advanced
-        assert "200 Hz" in advanced
+        assert all(f'data-atmosphere="{mood}"' in advanced for mood in ("restore", "melancholy", "deep"))
+        assert all(f'data-synth-parameter="{name}"' in advanced for name in ("warmth", "movement", "space", "texture", "shimmer", "output"))
+        assert 'data-tonal-source="manual"' in advanced
+        assert 'data-tonal-source="generated"' in advanced
+        assert all(f'data-tonal-centre="{midi}"' in advanced for midi in (48, 50, 51, 53, 55, 57))
+        assert "data-ambient=\"drone\"" not in advanced
+        assert "data-drone-frequency" not in advanced
         assert "data-chord-card" in advanced
         assert "data-chord-duration" in advanced
         assert "data-chord-temperature" in advanced
@@ -114,7 +118,7 @@ def test_registration_creates_isolated_default_workspace(app, registered):
         assert "data-chord-pipeline" in advanced
         assert "data-chord-transition" in advanced
         assert "data-binaural-chord-transition" in advanced
-        assert "Minimal melodic elements" in advanced
+        assert all(layer in advanced for layer in ("Drone", "Harmonic pad", "Analog drift", "Weather texture", "High shimmer", "Felt anchor"))
         assert "volume-mixer-card" in advanced
         assert "data-volume=\"binaural\"" in advanced
         assert "data-volume=\"ambient\"" in advanced
@@ -125,6 +129,7 @@ def test_registration_creates_isolated_default_workspace(app, registered):
         assert "data-volume=\"noise\"" in advanced
         user_css = safe_path("listener", "static/user.css").read_text()
         assert "mobile-readability-v1" in user_css
+        assert "ambient-synth-v1" in user_css
         assert "@media(max-width:600px)" in user_css
         assert "body{overflow-x:hidden;font-size:16px" in user_css
         assert "min-height:48px" in user_css
@@ -435,6 +440,25 @@ def test_player_migrates_only_untouched_legacy_default_workspace(app, registered
         assert not safe_path("listener", "pages/mixer.html").exists()
 
 
+def test_player_upgrades_only_exact_legacy_advanced_synth_page(app, registered):
+    from resona.user_storage import _legacy_default_advanced_page
+
+    with app.app_context():
+        advanced_path = safe_path("listener", "pages/advanced.html")
+        advanced_path.write_text(_legacy_default_advanced_page(), encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        upgraded = safe_path("listener", "pages/advanced.html").read_text()
+        assert 'data-synth-parameter="warmth"' in upgraded
+        customized = _legacy_default_advanced_page().replace("Ambient music generator", "My custom ambient studio", 1)
+        safe_path("listener", "pages/advanced.html").write_text(customized, encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        preserved = safe_path("listener", "pages/advanced.html").read_text()
+        assert "My custom ambient studio" in preserved
+        assert 'data-synth-parameter="warmth"' not in preserved
+
+
 def test_player_upgrades_untouched_single_home_to_ambient_generator(app, registered):
     from resona.user_storage import _single_home_v2_page
 
@@ -476,7 +500,7 @@ def test_player_upgrades_untouched_volume_home_to_noise_generator(app, registere
         assert "data-volume=\"noise\"" in home
 
 
-def test_player_upgrades_untouched_noise_home_to_drone_frequency_control(app, registered):
+def test_player_upgrades_untouched_noise_home_to_full_ambient_synth(app, registered):
     from resona.user_storage import _single_home_v5_page
 
     with app.app_context():
@@ -484,12 +508,12 @@ def test_player_upgrades_untouched_noise_home_to_drone_frequency_control(app, re
     assert registered.get("/player/").status_code == 200
     with app.app_context():
         home = safe_path("listener", "pages/advanced.html").read_text()
-        assert 'min="40" max="400"' in home
-        assert "data-drone-frequency" in home
-        assert "Base root for harmony and binaural chords" in home
+        assert 'data-atmosphere="deep"' in home
+        assert 'data-synth-parameter="warmth"' in home
+        assert 'data-tonal-centre="53"' in home
 
 
-def test_player_upgrades_drone_control_to_chord_following_binaural_carrier(app, registered):
+def test_player_upgrades_drone_control_to_generated_and_manual_tonal_sources(app, registered):
     from resona.user_storage import _single_home_v6_page
 
     with app.app_context():
@@ -497,8 +521,9 @@ def test_player_upgrades_drone_control_to_chord_following_binaural_carrier(app, 
     assert registered.get("/player/").status_code == 200
     with app.app_context():
         home = safe_path("listener", "pages/advanced.html").read_text()
-        assert "Base root for harmony and binaural chords" in home
-        assert "binaural carrier follow each chord" in home
+        assert 'data-tonal-source="manual"' in home
+        assert 'data-tonal-source="generated"' in home
+        assert "Generated progression" in home
 
 
 def test_player_upgrades_shared_carrier_home_to_private_chord_model(app, registered):
@@ -522,8 +547,8 @@ def test_player_upgrades_pad_only_chords_to_harmonized_ambient_chords(app, regis
     assert registered.get("/player/").status_code == 200
     with app.app_context():
         home = safe_path("listener", "pages/advanced.html").read_text()
-        assert "lush pads, melodic tones, and binaural carrier" in home
-        assert "simplified into one coherent key" in home
+        assert "every pitched synth layer and the binaural carrier" in home
+        assert "automatically selects Generated progression" in home
 
 
 def test_player_upgrades_harmonized_chords_to_continuous_set_mode(app, registered):
@@ -550,8 +575,8 @@ def test_player_upgrades_continuous_mode_to_chord_following_binaural_audio(app, 
     assert registered.get("/player/").status_code == 200
     with app.app_context():
         home = safe_path("listener", "pages/advanced.html").read_text()
-        assert "lush pads, melodic tones, and binaural carrier" in home
-        assert "binaural carrier follow each chord" in home
+        assert "every pitched synth layer and the binaural carrier" in home
+        assert "automatically selects Generated progression" in home
 
 
 def test_player_upgrades_chord_following_audio_to_transition_controls(app, registered):
@@ -586,6 +611,55 @@ def test_audio_engine_clamps_chord_duration_to_two_through_120_seconds(registere
     audio = registered.get("/static/js/audio.js").get_data(as_text=True)
     chord_setter = audio.split("    setChordProgression(chords, duration)", 1)[1].split("    toggleChordProgression()", 1)[0]
     assert "Math.max(2, Math.min(120, Number(duration) || 4))" in chord_setter
+
+
+def test_home_modes_map_to_new_atmospheres_roots_and_binaural_beats(registered):
+    player = registered.get("/static/js/player.js").get_data(as_text=True)
+    assert "sleep:{ beat:2, atmosphere:'deep', rootMidi:57 }" in player
+    assert "meditation:{ beat:6, atmosphere:'deep', rootMidi:53 }" in player
+    assert "focus:{ beat:10, atmosphere:'restore', rootMidi:57 }" in player
+    assert "awake:{ beat:18, atmosphere:'restore', rootMidi:48 }" in player
+    assert "setAtmosphere(preset.atmosphere)" in player
+    assert "setTonalCentre(preset.rootMidi)" in player
+
+
+def test_synth_bridge_actions_are_allowlisted_and_state_synchronized(registered):
+    player = registered.get("/static/js/player.js").get_data(as_text=True)
+    advanced = registered.get("/storage/listener/pages/advanced.html").get_data(as_text=True)
+    for action in ("setAtmosphere", "setAmbientParameter", "setTonalSource", "setTonalCentre"):
+        assert f"data.action === '{action}'" in player
+        assert f"action:'{action}'" in advanced
+    assert "['restore','melancholy','deep'].includes(data.value)" in player
+    assert "['warmth','movement','space','texture','shimmer','output'].includes(data.name)" in player
+    assert "['manual','generated'].includes(data.value)" in player
+    assert "[48,50,51,53,55,57].includes(Number(data.value))" in player
+    assert "data.config?.ambient?.parameters" in advanced
+    assert "data.config?.ambient?.tonalSource" in advanced
+
+
+def test_atmosphere_presets_and_tonal_sources_preserve_independent_output_stages(registered):
+    audio = registered.get("/static/js/audio.js").get_data(as_text=True)
+    assert "restore:{ warmth:72, movement:50, space:62, texture:24, shimmer:46 }" in audio
+    assert "melancholy:{ warmth:64, movement:38, space:74, texture:31, shimmer:35 }" in audio
+    assert "deep:{ warmth:80, movement:25, space:82, texture:20, shimmer:21 }" in audio
+    assert "if (this.config.ambient.tonalSource === 'manual')" in audio
+    assert "if (source === 'generated' && !this.config.ambient.chordProgression.length) return false" in audio
+    assert "this.clearManualHarmonyTimer()" in audio
+    assert "this.ambientSynthMaster.gain" in audio
+    assert "this.ambientOutput.gain" in audio
+    assert ".6 * scale * this.config.volumes.ambient / 50" in audio
+    assert "this.config.master / 100" in audio
+
+
+def test_ambient_stop_cancels_evolution_and_uses_restart_safe_cleanup(registered):
+    audio = registered.get("/static/js/audio.js").get_data(as_text=True)
+    stop = audio.split("    stopAmbient()", 1)[1].split("    toggleAmbient()", 1)[0]
+    assert "this.ambientTimers.forEach(clearInterval)" in stop
+    assert "clearInterval(this.chordTimer)" in stop
+    assert "const now = this.context.currentTime, sources = this.ambientSources.slice(), nodes = this.ambientNodes.slice()" in stop
+    assert "token = ++this.ambientShutdownToken" in stop
+    assert "if (this.ambientShutdownToken === token)" in stop
+    assert "source.stop()" in stop and "node.disconnect()" in stop
 
 
 def test_authentication_gate_blocks_other_user_storage(app, registered):
@@ -672,6 +746,20 @@ def test_agent_is_taught_the_persistent_frontend_file_skill():
     assert "This API cannot modify pages, navigation, memory, snapshots, or server files" in system
 
 
+def test_agent_is_taught_full_ambient_synth_controls_and_mobile_requirements():
+    from resona.agent_runtime import build_agent_messages
+
+    system = build_agent_messages("Base", "Design an ambient page", [], "", '{"nav_items":[]}', 20)[0]["content"]
+    assert "setAtmosphere" in system and "restore, melancholy, or deep" in system
+    assert "setAmbientParameter" in system and "warmth, movement, space, texture, shimmer, or output" in system
+    assert "setTonalSource" in system and "manual or generated" in system
+    assert "setTonalCentre" in system and "48, 50, 51, 53, 55, or 57" in system
+    assert "six-layer native Web Audio synth" in system
+    assert "Generated mode disables that internal chord cycle" in system
+    assert "every pitched synth layer plus the binaural carrier" in system
+    assert "comfortable and readable on phones down to 320px" in system
+
+
 def test_binaural_engine_never_starts_or_controls_noise(registered):
     audio = registered.get("/static/js/audio.js").get_data(as_text=True)
     binaural_start = audio.split("    start() {", 1)[1].split("    stop() {", 1)[0]
@@ -684,20 +772,23 @@ def test_binaural_engine_never_starts_or_controls_noise(registered):
     assert "this.startNoise()" in noise_selection
 
 
-def test_ambient_layers_and_active_binaural_chord_follow_drone_without_tuning_textures(registered):
+def test_full_ambient_synth_builds_six_layers_and_complete_effects_chain(registered):
     audio = registered.get("/static/js/audio.js").get_data(as_text=True)
-    frequency_map = audio.split("    ambientFrequencies(", 1)[1].split("    setDroneFrequency(", 1)[0]
-    frequency_update = audio.split("    setDroneFrequency(", 1)[1].split("    startAmbient()", 1)[0]
-    assert "root * 1.25" in frequency_map
-    assert "root * 1.5" in frequency_map
-    assert "root * 2.5" in frequency_map
-    assert "root * 3" in frequency_map
-    assert "root * 4" in frequency_map
-    assert "textures" not in frequency_map
-    assert "textureFilter" not in frequency_update
-    assert "this.config.carrier = chordFrequencies ? chordFrequencies.pads[0] : root" in frequency_update
-    assert "this.updateBinauralFrequencies()" in frequency_update
-    assert "setTargetAtTime" in frequency_update
+    graph = audio.split("    buildAmbientGraph()", 1)[1].split("    buildAmbientLayers()", 1)[0]
+    layers = audio.split("    buildAmbientLayers()", 1)[1].split("    clearManualHarmonyTimer()", 1)[0]
+    assert "createWaveShaper" in graph and "makeSaturationCurve(7)" in graph
+    assert "chorusDelayL" in graph and "chorusDelayR" in graph
+    assert "createDynamicsCompressor" in graph
+    assert "makeImpulse(9.5, 2.7)" in graph
+    assert "createConvolver" in graph and "createDelay(2)" in graph
+    assert "ambientAnalyser" in graph and "fftSize = 512" in graph
+    assert "const drone" in layers
+    assert "const body" in layers and "analogDrift" in layers
+    assert "const weather" in layers and "makeAmbientNoise(12)" in layers
+    assert "const shimmer" in layers
+    assert "anchorGain" in layers
+    assert "setInterval(() => this.applyRandomDrift(),4300)" in audio
+    assert "setInterval(() => this.playFeltAnchor(),14000 + Math.random() * 7000)" in audio
 
 
 def test_binaural_pair_is_symmetric_around_active_chord_carrier(registered):
@@ -716,24 +807,26 @@ def test_binaural_pair_is_symmetric_around_active_chord_carrier(registered):
 def test_chord_progression_harmonizes_all_pitched_ambient_layers_in_browser(registered):
     audio = registered.get("/static/js/audio.js").get_data(as_text=True)
     chord_logic = audio.split("    harmonizeProgression(", 1)[1].split("    startAmbient()", 1)[0]
+    harmony_application = audio.split("    applyHarmony(intervals, transition, generated)", 1)[1].split("    applyProgressionChord()", 1)[0]
     manual_frequency = audio.split("    setDroneFrequency(", 1)[1].split("    parseChord(", 1)[0]
     assert "[0,2,4,5,7,9,11]" in chord_logic
     assert "[0,2,3,5,7,8,10]" in chord_logic
     assert "this.progressionTonic = tonic.root" in chord_logic
-    assert "this.config.ambient.droneFrequency * Math.pow(2" in chord_logic
-    assert "pads:" in chord_logic
-    assert "melody:" in chord_logic
-    assert "Object.entries(frequencies)" in chord_logic
-    assert "frequency.cancelScheduledValues(now)" in chord_logic
-    assert "frequency.setValueAtTime(values[index], now)" in chord_logic
-    assert "frequency.setTargetAtTime(values[index], now, .35)" in manual_frequency
-    assert "textureFilter" not in chord_logic
-    assert "ambientSpatial" not in chord_logic
+    assert "chordIntervals(chord)" in chord_logic
+    assert "this.ambientVoices.body.forEach" in chord_logic
+    assert "this.ambientVoices.shimmer.forEach" in chord_logic
+    assert "this.ambientVoices.drone.forEach" in chord_logic
+    assert "const droneRoot = generated ? intervals.root : 0" in chord_logic
+    assert "weather" not in harmony_application
+    assert "ambientGains.textures" not in harmony_application
     assert "setInterval" in chord_logic
     assert "setChordProgression(chords, duration)" in chord_logic
     assert "this.harmonizeProgression(chords)" in chord_logic
-    assert "this.config.carrier = frequencies.pads[0]" in chord_logic
+    assert "this.config.ambient.tonalSource = 'generated'" in chord_logic
+    assert "this.config.carrier = midiToFrequency(this.config.ambient.manualRootMidi + intervals.root)" in chord_logic
     assert "this.updateBinauralFrequencies(Math.min(this.config.ambient.binauralChordTransition, this.config.ambient.chordDuration))" in chord_logic
+    assert "this.config.ambient.manualRootMidi = frequencyToMidi(root)" in manual_frequency
+    assert "this.config.ambient.tonalSource !== 'manual'" in manual_frequency
     assert "this.updateBinauralFrequencies();" in manual_frequency
     assert "binauralChordTransition" not in manual_frequency
 
@@ -741,16 +834,17 @@ def test_chord_progression_harmonizes_all_pitched_ambient_layers_in_browser(regi
 def test_progression_transition_controls_do_not_change_manual_drone_glide(registered):
     audio = registered.get("/static/js/audio.js").get_data(as_text=True)
     player = registered.get("/static/js/player.js").get_data(as_text=True)
-    page = registered.get("/storage/listener/pages/home.html").get_data(as_text=True)
+    page = registered.get("/storage/listener/pages/advanced.html").get_data(as_text=True)
     chord_application = audio.split("    applyProgressionChord()", 1)[1].split("    scheduleProgression()", 1)[0]
     manual_frequency = audio.split("    setDroneFrequency(", 1)[1].split("    parseChord(", 1)[0]
     assert "chordTransition:0" in audio
     assert "binauralChordTransition:0" in audio
     assert "setChordTransition(value)" in audio
     assert "setBinauralChordTransition(value)" in audio
-    assert "linearRampToValueAtTime(values[index], now + chordTransition)" in chord_application
+    assert "this.applyHarmony(intervals, chordTransition, true)" in chord_application
+    assert "parameter.linearRampToValueAtTime(frequency, now + transition)" in audio
     assert "binauralChordTransition" in chord_application
-    assert "setTargetAtTime(values[index], now, .35)" in manual_frequency
+    assert "this.morphManualHarmony()" in manual_frequency
     assert "linearRampToValueAtTime" not in manual_frequency
     assert "data.action === 'setChordTransition'" in player
     assert "data.action === 'setBinauralChordTransition'" in player

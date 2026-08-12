@@ -18,16 +18,15 @@
   const sendToPage = (type, payload = {}) => frame.contentWindow?.postMessage({ type, ...payload }, '*');
   const sendAudioState = () => sendToPage('resona:audio-state', { playing:window.resonaAudio.playing, ambientPlaying:window.resonaAudio.ambientPlaying, noisePlaying:window.resonaAudio.noisePlaying, chordProgressionPlaying:window.resonaAudio.chordProgressionPlaying, chordProgressionPaused:window.resonaAudio.chordProgressionPaused, chordProgressionIndex:window.resonaAudio.chordProgressionIndex, config:window.resonaAudio.config });
   const modePresets = {
-    sleep:{ beat:2, droneFrequency:110, drone:72, pads:58, textures:42, melody:8, spatial:62 },
-    meditation:{ beat:6, droneFrequency:174, drone:58, pads:68, textures:30, melody:18, spatial:58 },
-    focus:{ beat:10, droneFrequency:220, drone:34, pads:48, textures:18, melody:36, spatial:32 },
-    awake:{ beat:18, droneFrequency:261, drone:22, pads:36, textures:14, melody:52, spatial:24 }
+    sleep:{ beat:2, atmosphere:'deep', rootMidi:57 },
+    meditation:{ beat:6, atmosphere:'deep', rootMidi:53 },
+    focus:{ beat:10, atmosphere:'restore', rootMidi:57 },
+    awake:{ beat:18, atmosphere:'restore', rootMidi:48 }
   };
   function applyMode(name) {
     const preset = modePresets[name]; if (!preset) return;
     window.resonaAudio.config.mode = name;
-    window.resonaAudio.setBeat(preset.beat); window.resonaAudio.setDroneFrequency(preset.droneFrequency);
-    ['drone','pads','textures','melody','spatial'].forEach(key => window.resonaAudio.setAmbient(key, preset[key]));
+    window.resonaAudio.setBeat(preset.beat); window.resonaAudio.setAtmosphere(preset.atmosphere); window.resonaAudio.setTonalCentre(preset.rootMidi);
     window.resonaAudio.notifyState();
   }
   function toggleSession() {
@@ -115,6 +114,10 @@
       else if (data.action === 'setVolume' && ['binaural','ambient','noise'].includes(data.name || data.volumeType) && Number.isFinite(Number(data.value ?? data.volumeValue))) window.resonaAudio.setVolume(data.name || data.volumeType, Math.max(0, Math.min(100, Number(data.value ?? data.volumeValue))));
       else if (data.action === 'toggleAmbient') window.resonaAudio.toggleAmbient();
       else if (data.action === 'setDroneFrequency' && Number.isFinite(Number(data.value))) window.resonaAudio.setDroneFrequency(Math.max(40, Math.min(400, Number(data.value))));
+      else if (data.action === 'setAtmosphere' && ['restore','melancholy','deep'].includes(data.value)) window.resonaAudio.setAtmosphere(data.value);
+      else if (data.action === 'setAmbientParameter' && ['warmth','movement','space','texture','shimmer','output'].includes(data.name) && Number.isFinite(Number(data.value))) window.resonaAudio.setAmbientParameter(data.name, Math.max(0, Math.min(100, Number(data.value))));
+      else if (data.action === 'setTonalSource' && ['manual','generated'].includes(data.value)) window.resonaAudio.setTonalSource(data.value);
+      else if (data.action === 'setTonalCentre' && [48,50,51,53,55,57].includes(Number(data.value))) window.resonaAudio.setTonalCentre(Number(data.value));
       else if (data.action === 'setChordTransition' && Number.isFinite(Number(data.value))) window.resonaAudio.setChordTransition(data.value);
       else if (data.action === 'setBinauralChordTransition' && Number.isFinite(Number(data.value))) window.resonaAudio.setBinauralChordTransition(data.value);
       else if (data.action === 'setAmbient' && ['drone','pads','textures','melody','spatial'].includes(data.name) && Number.isFinite(Number(data.value))) window.resonaAudio.setAmbient(data.name, Math.max(0, Math.min(100, Number(data.value))));

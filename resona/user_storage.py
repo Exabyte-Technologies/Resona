@@ -390,10 +390,64 @@ def _single_home_v12_page():
     return _single_home_v11_page().replace(marker, transition_card + marker, 1)
 
 
-def default_advanced_page():
+def _legacy_default_advanced_page():
     return _single_home_v12_page().replace(
         'min="1" max="12" step="0.5" value="4" data-chord-duration',
         'min="2" max="120" step="1" value="4" data-chord-duration',
+    )
+
+
+def default_advanced_page():
+    legacy_controls = '''  <div class="ambient-controls">
+    <label class="drone-frequency-control"><span><strong>Drone frequency</strong><small>Base root for harmony and binaural chords</small></span><output>200 Hz</output><input type="range" min="40" max="400" step="1" value="200" data-drone-frequency></label>
+    <label><span><strong>Drone</strong><small>Low, grounding foundation</small></span><output>48</output><input type="range" min="0" max="100" value="48" data-ambient="drone"></label>
+    <label><span><strong>Lush pads</strong><small>Warm harmonic bloom</small></span><output>64</output><input type="range" min="0" max="100" value="64" data-ambient="pads"></label>
+    <label><span><strong>Textures &amp; foley</strong><small>Air, grain and organic detail</small></span><output>32</output><input type="range" min="0" max="100" value="32" data-ambient="textures"></label>
+    <label><span><strong>Minimal melodic elements</strong><small>Sparse, glimmering tones</small></span><output>24</output><input type="range" min="0" max="100" value="24" data-ambient="melody"></label>
+    <label><span><strong>Spatial effects</strong><small>Width, drift and echo</small></span><output>46</output><input type="range" min="0" max="100" value="46" data-ambient="spatial"></label>
+  </div>'''
+    synth_controls = '''  <div class="ambient-synth-controls">
+    <section class="synth-control-group atmosphere-control" aria-labelledby="atmosphere-control-title">
+      <div class="synth-section-heading"><span>01</span><div><h3 id="atmosphere-control-title">Atmosphere</h3><p>Shape the emotional weather.</p></div></div>
+      <div class="atmosphere-options" role="group" aria-label="Atmosphere">
+        <button data-atmosphere="restore" aria-pressed="false"><strong>Restore</strong><small>Warm · open</small></button>
+        <button data-atmosphere="melancholy" aria-pressed="false"><strong>Melancholy</strong><small>Minor · tender</small></button>
+        <button class="active" data-atmosphere="deep" aria-pressed="true"><strong>Deep meditation</strong><small>Low · spacious</small></button>
+      </div>
+    </section>
+    <section class="synth-control-group tonal-control" aria-labelledby="tonal-control-title">
+      <div class="synth-section-heading"><span>02</span><div><h3 id="tonal-control-title">Tonal centre</h3><p>Use generated chords or choose the room's foundation.</p></div></div>
+      <div class="tonal-source" role="group" aria-label="Tonal source">
+        <button class="active" data-tonal-source="manual" aria-pressed="true">Manual</button>
+        <button data-tonal-source="generated" aria-pressed="false" disabled>Generated progression</button>
+      </div>
+      <div class="root-options" role="group" aria-label="Manual tonal centre">
+        <button data-tonal-centre="48" aria-pressed="false">C</button><button data-tonal-centre="50" aria-pressed="false">D</button><button data-tonal-centre="51" aria-pressed="false">E♭</button><button class="active" data-tonal-centre="53" aria-pressed="true">F</button><button data-tonal-centre="55" aria-pressed="false">G</button><button data-tonal-centre="57" aria-pressed="false">A</button>
+      </div>
+    </section>
+    <section class="synth-control-group sculpt-control" aria-labelledby="sculpt-control-title">
+      <div class="synth-section-heading"><span>03</span><div><h3 id="sculpt-control-title">Sculpt the field</h3><p>Changes breathe in slowly, without seams.</p></div></div>
+      <div class="synth-knob-grid">
+        <label class="synth-knob" style="--value:80;--accent:#c7a776"><input type="range" min="0" max="100" value="80" aria-label="Warmth" data-synth-parameter="warmth"><span class="knob-face" aria-hidden="true"><i></i></span><strong>Warmth</strong><output>80</output></label>
+        <label class="synth-knob" style="--value:25;--accent:#91a398"><input type="range" min="0" max="100" value="25" aria-label="Movement" data-synth-parameter="movement"><span class="knob-face" aria-hidden="true"><i></i></span><strong>Movement</strong><output>25</output></label>
+        <label class="synth-knob" style="--value:82;--accent:#a69bb0"><input type="range" min="0" max="100" value="82" aria-label="Space" data-synth-parameter="space"><span class="knob-face" aria-hidden="true"><i></i></span><strong>Space</strong><output>82</output></label>
+        <label class="synth-knob" style="--value:20;--accent:#9b8b7e"><input type="range" min="0" max="100" value="20" aria-label="Texture" data-synth-parameter="texture"><span class="knob-face" aria-hidden="true"><i></i></span><strong>Texture</strong><output>20</output></label>
+        <label class="synth-knob" style="--value:21;--accent:#b9ad8f"><input type="range" min="0" max="100" value="21" aria-label="Shimmer" data-synth-parameter="shimmer"><span class="knob-face" aria-hidden="true"><i></i></span><strong>Shimmer</strong><output>21</output></label>
+        <label class="synth-knob" style="--value:58;--accent:#c7a776"><input type="range" min="0" max="100" value="58" aria-label="Output" data-synth-parameter="output"><span class="knob-face" aria-hidden="true"><i></i></span><strong>Output</strong><output>58</output></label>
+      </div>
+    </section>
+    <ol class="synth-layer-list" aria-label="Living ambient layers"><li>Drone</li><li>Harmonic pad</li><li>Analog drift</li><li>Weather texture</li><li>High shimmer</li><li>Felt anchor</li></ol>
+  </div>'''
+    page = _legacy_default_advanced_page().replace(legacy_controls, synth_controls)
+    return page.replace(
+        "Set the base tonal anchor. Pads, melody, and the binaural carrier follow each chord; textures stay broadband and spatial effects stay pitchless.",
+        "Shape six living synth layers through atmosphere, tonal centre, and a full spatial effects chain. Generated chords can conduct every pitched layer while weather remains untuned.",
+    ).replace(
+        "Generate a harmonized progression for the lush pads, melodic tones, and binaural carrier. Complex predictions are simplified into one coherent key.",
+        "Generate a harmonized progression for every pitched synth layer and the binaural carrier. Applying it automatically selects Generated progression.",
+    ).replace(
+        "Lush pads and melodic tones",
+        "All pitched ambient synth layers",
     )
 
 
@@ -460,6 +514,12 @@ CHORD_TRANSITION_STYLES = '''
 .binaural-transition-subcard{position:relative;margin-top:18px;padding:16px;border:1px solid rgba(185,230,140,.12);border-radius:20px;background:rgba(8,13,8,.3)}.transition-subcard-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.transition-subcard-heading p{margin:0;color:#78896c;font-size:8px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.transition-subcard-heading h3{margin:3px 0 0;font:400 20px/1.1 Georgia,serif}.transition-subcard-heading>span{padding:4px 7px;border-radius:999px;background:#20301b;color:#c4ef99;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.binaural-transition-subcard>p{margin:8px 0 12px;color:#747e72;font-size:8px}.transition-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.transition-controls label{display:grid;grid-template-columns:1fr auto;gap:4px 8px;padding:9px 10px;border:1px solid rgba(255,255,255,.055);border-radius:12px;background:rgba(8,11,8,.2)}.transition-controls span strong,.transition-controls span small{display:block}.transition-controls span strong{font-size:9px}.transition-controls span small{color:#697267;font-size:7px}.transition-controls output{color:#c4ef99;font-size:8px;font-variant-numeric:tabular-nums}.transition-controls input{grid-column:1/-1;width:100%;height:3px;accent-color:#a9cf83}@media(max-width:520px){.transition-controls{grid-template-columns:1fr}}
 '''
 
+AMBIENT_SYNTH_STYLES = '''
+/* ambient-synth-v1 */
+.ambient-synth-controls{position:relative;display:grid;gap:12px}.synth-control-group{padding:14px;border:1px solid rgba(184,216,244,.1);border-radius:18px;background:rgba(6,10,11,.28)}.synth-section-heading{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}.synth-section-heading>span{display:grid;place-items:center;flex:none;width:25px;height:25px;border:1px solid rgba(184,216,244,.14);border-radius:50%;color:#7f9aab;font-size:7px}.synth-section-heading h3{margin:0;font:400 18px/1.1 Georgia,serif}.synth-section-heading p{margin:3px 0 0;color:#727e82;font-size:8px}.atmosphere-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.atmosphere-options button{min-height:54px;padding:9px;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:#11191b;color:#dce2e3;text-align:left}.atmosphere-options strong,.atmosphere-options small{display:block}.atmosphere-options strong{font-size:9px}.atmosphere-options small{margin-top:3px;color:#68767a;font-size:7px}.atmosphere-options button:hover,.atmosphere-options button.active{border-color:#93afbd;background:#1d2b30}.atmosphere-options button.active strong{color:#cde7f3}.tonal-source{display:grid;grid-template-columns:1fr 1.35fr;gap:7px}.tonal-source button,.root-options button{min-height:38px;border:1px solid rgba(255,255,255,.07);border-radius:11px;background:#111719;color:#9ba7aa;font-size:8px}.tonal-source button:hover:not(:disabled),.tonal-source button.active,.root-options button:hover:not(:disabled),.root-options button.active{border-color:#b5a17e;background:#2a271f;color:#efe2c9}.tonal-source button:disabled,.root-options button:disabled{cursor:not-allowed;opacity:.34}.root-options{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-top:7px}.root-options button{min-height:35px}.synth-knob-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 8px}.synth-knob{position:relative;display:grid;justify-items:center;grid-template-columns:1fr auto;width:100%;min-width:0;color:#a9b0b0}.synth-knob input{position:absolute;z-index:2;top:0;left:50%;width:68px;height:68px;margin:0;opacity:0;transform:translateX(-50%);cursor:grab;touch-action:pan-y}.synth-knob input:active{cursor:grabbing}.knob-face{position:relative;grid-column:1/-1;display:block;width:68px;height:68px;border:1px solid rgba(255,255,255,.1);border-radius:50%;background:radial-gradient(circle at 40% 32%,#303738,#171d1f 62%,#0b0f10);box-shadow:inset 0 1px 1px rgba(255,255,255,.09),0 8px 18px rgba(0,0,0,.26)}.knob-face:before{content:"";position:absolute;inset:6px;border:2px solid var(--accent);border-radius:50%;opacity:.28}.knob-face i{position:absolute;left:50%;top:8px;width:2px;height:23px;border-radius:2px;background:var(--accent);box-shadow:0 0 8px var(--accent);transform-origin:50% 26px;transform:translateX(-50%) rotate(calc(-135deg + var(--value)*2.7deg))}.synth-knob input:focus-visible+.knob-face{outline:3px solid rgba(184,216,244,.42);outline-offset:3px}.synth-knob strong{justify-self:start;margin:8px 0 0;font-size:8px;font-weight:700}.synth-knob output{justify-self:end;margin-top:8px;color:var(--accent);font-size:8px;font-variant-numeric:tabular-nums}.synth-layer-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:0;padding:0;list-style:none;counter-reset:layer}.synth-layer-list li{counter-increment:layer;padding:6px 7px;border-radius:8px;background:rgba(255,255,255,.025);color:#6f7a7c;font-size:7px}.synth-layer-list li:before{content:"0" counter(layer);margin-right:5px;color:#9bacb1}
+@media(max-width:600px){.synth-control-group{padding:16px}.synth-section-heading h3{font-size:22px}.synth-section-heading p{font-size:12px}.atmosphere-options{grid-template-columns:1fr}.atmosphere-options button{min-height:52px;padding:11px 13px}.atmosphere-options strong{font-size:14px}.atmosphere-options small{font-size:12px}.tonal-source button,.root-options button{min-height:48px;font-size:13px}.root-options{grid-template-columns:repeat(3,1fr)}.synth-knob-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 12px}.synth-knob input,.knob-face{width:76px;height:76px}.knob-face i{height:26px;transform-origin:50% 29px}.synth-knob strong,.synth-knob output{font-size:13px}.synth-layer-list{grid-template-columns:repeat(2,1fr)}.synth-layer-list li{padding:9px;font-size:11px}}
+'''
+
 MOBILE_READABILITY_STYLES = '''
 /* mobile-readability-v1 */
 @media(max-width:600px){
@@ -484,6 +544,8 @@ def _ensure_single_home_styles(root):
         additions += "\n/* single-home-v10 */\n" + CONTINUOUS_CHORD_STYLES
     if "single-home-v12" not in css:
         additions += "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES
+    if "ambient-synth-v1" not in css:
+        additions += "\n" + AMBIENT_SYNTH_STYLES
     if "mobile-readability-v1" not in css:
         additions += "\n" + MOBILE_READABILITY_STYLES
     if additions:
@@ -524,8 +586,10 @@ def migrate_legacy_default_workspace(username):
     items = navigation.get("nav_items", [])
     actual = [(item.get("id"), item.get("target_html")) for item in items if isinstance(item, dict)]
     current_home = home_path.read_text(encoding="utf-8")
+    advanced_path = root / "pages/advanced.html"
+    current_advanced = advanced_path.read_text(encoding="utf-8") if advanced_path.is_file() else None
     advanced_defaults = (
-        default_advanced_page(), _single_home_v2_page(), _single_home_v3_page(),
+        default_advanced_page(), _legacy_default_advanced_page(), _single_home_v2_page(), _single_home_v3_page(),
         _single_home_v4_page(), _single_home_v5_page(), _single_home_v6_page(), _single_home_v7_page(),
         _single_home_v8_page(), _single_home_v9_page(), _single_home_v10_page(), _single_home_v11_page(),
         _single_home_v12_page(),
@@ -540,7 +604,9 @@ def migrate_legacy_default_workspace(username):
     if actual == [("home", "pages/home.html"), ("advanced", "pages/advanced.html")]:
         if current_home in advanced_defaults:
             home_path.write_text(default_home_page(), encoding="utf-8")
-            (root / "pages/advanced.html").write_text(default_advanced_page(), encoding="utf-8")
+            advanced_path.write_text(default_advanced_page(), encoding="utf-8")
+        elif current_home == default_home_page() and current_advanced == _legacy_default_advanced_page():
+            advanced_path.write_text(default_advanced_page(), encoding="utf-8")
         _ensure_single_home_styles(root)
         _ensure_default_navigation_icons(root)
         return True
@@ -615,7 +681,7 @@ def initialize_user_storage(username):
     (root / "memory/plan.md").write_text("# Vibe modification log\n\n", encoding="utf-8")
     (root / "memory/changelog.md").write_text("# Resona changelog\n\n", encoding="utf-8")
     css = '''*{box-sizing:border-box}html,body{min-height:100%;background:#121611}body{margin:0;color:#f5f1e8;font:500 16px/1.5 Inter,system-ui,sans-serif}.page{width:min(1040px,100%);margin:auto;padding:clamp(28px,6vw,72px) clamp(20px,5vw,54px) 150px}.eyebrow{margin:0;color:#b9e68c;text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:800}h1{font:600 clamp(42px,8vw,82px)/.98 Georgia,serif;letter-spacing:-.05em;margin:10px 0 14px}.intro{max-width:610px;margin:0;color:#b7b5ae}.binaural-panel{margin-top:clamp(34px,6vw,68px)}.panel-heading p{margin:0;color:#858b81;font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}.panel-heading h2{margin:5px 0 18px;font:400 clamp(25px,4vw,36px) Georgia,serif}.band-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.band-button{min-height:116px;padding:18px;border:1px solid rgba(255,255,255,.1);border-radius:20px;background:#1b2019;color:#f5f1e8;text-align:left;cursor:pointer;transition:.22s}.band-button strong,.band-button span{display:block}.band-button strong{font-size:18px}.band-button span{margin-top:8px;color:#8e948a;font-size:11px}.band-button:hover,.band-button.active{transform:translateY(-2px);border-color:#8daf6e;background:#24301f;box-shadow:0 14px 34px #0005}.band-button.active strong{color:#c4ef99}.playback-control{display:flex;flex-direction:column;align-items:center;margin-top:clamp(36px,7vw,72px)}.playback-control>p{color:#9ca396;font-size:12px}.play-toggle{display:flex;align-items:center;justify-content:center;gap:12px;width:160px;height:64px;border:0;border-radius:999px;background:#b9e68c;color:#15200f;box-shadow:0 0 0 9px rgba(185,230,140,.07),0 18px 45px #0007;cursor:pointer}.play-toggle:hover{transform:scale(1.03)}.play-toggle.playing{background:#f1eee5}.play-symbol{font-size:14px}.playback-control small{margin-top:15px;color:#696e66;font-size:10px;text-transform:uppercase;letter-spacing:.12em}@media(max-width:760px){.band-grid{grid-template-columns:repeat(2,1fr)}.band-button:last-child{grid-column:1/-1}.page{padding-top:28px}}@media(max-width:430px){h1{font-size:44px}.band-button{min-height:92px;padding:14px}.binaural-panel{margin-top:30px}.playback-control{margin-top:34px}}'''
-    (root / "static/user.css").write_text(css.rstrip() + "\n" + SIMPLE_HOME_STYLES + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES + "\n/* single-home-v10 */\n" + CONTINUOUS_CHORD_STYLES + "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES + "\n" + MOBILE_READABILITY_STYLES + "\n", encoding="utf-8")
+    (root / "static/user.css").write_text(css.rstrip() + "\n" + SIMPLE_HOME_STYLES + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES + "\n/* single-home-v10 */\n" + CONTINUOUS_CHORD_STYLES + "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES + "\n" + AMBIENT_SYNTH_STYLES + "\n" + MOBILE_READABILITY_STYLES + "\n", encoding="utf-8")
     (root / "static/custom_synth.js").write_text("window.ResonaCustomSynth = { version: 1, configure(engine) { engine.config.carrier = engine.config.ambient.droneFrequency; } };\n", encoding="utf-8")
     _ensure_default_navigation_icons(root)
     pages = {"home.html": default_home_page(), "advanced.html": default_advanced_page()}
