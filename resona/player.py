@@ -4,7 +4,7 @@ from flask import Blueprint, abort, g, jsonify, render_template, request
 
 from .db import get_db
 from .security import login_required, require_csrf
-from .user_storage import migrate_legacy_default_workspace, safe_path, usage_bytes, user_root, validate_nav
+from .user_storage import ensure_chord_model_assets, migrate_legacy_default_workspace, safe_path, usage_bytes, user_root, validate_nav
 
 
 player_bp = Blueprint("player", __name__, url_prefix="/player")
@@ -14,6 +14,7 @@ player_bp = Blueprint("player", __name__, url_prefix="/player")
 @player_bp.get("/")
 @login_required
 def index():
+    ensure_chord_model_assets(g.user["username"])
     migrate_legacy_default_workspace(g.user["username"])
     nav_path = safe_path(g.user["username"], "nav.json")
     try:

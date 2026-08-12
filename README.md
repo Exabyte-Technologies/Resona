@@ -8,6 +8,7 @@ Resona is an adaptive healing-music web application. It combines a procedural We
 - Registration, login, password reset flow, profiles, session history, and a separate admin login
 - One focused default Home page with binaural-band selection and play/stop controls, driven by each user's private `nav.json`
 - Continuous binaural, colored-noise, and polyphonic Web Audio synthesis
+- A private browser-side LSTM chord generator that retunes the ambient pads without a generation API
 - Voice or text Vibe Agent interface with validated HTML, CSS, JS, JSON, SVG, and Markdown writes
 - Multi-turn autonomous agent runtime with list, read, write, replace, move, delete, navigation, validation, and registered-skill tools
 - Per-user 1 GB quotas, authenticated storage routes, path isolation, snapshots, and rollback
@@ -40,6 +41,8 @@ To enable email, save a Resend API key, sender name, and sender email in the adm
 When `ADMIN_PASSWORD` is non-empty, startup creates or synchronizes the administrator named by `ADMIN_USERNAME` (default `admin`). `ADMIN_EMAIL` is optional and defaults to `<username>@resona.local`. Restart the application after changing these values.
 
 The Vibe Agent continues calling the model and workspace tools until it explicitly finishes with a valid workspace. `AGENT_MAX_STEPS` defaults to 80 and can be adjusted from 1–200 in the admin provider panel. On every turn the agent receives its current step, total limit, and remaining budget, with instructions to avoid redundant work without rushing or skipping validation. Every run creates one rollback snapshot before the first tool call. Registered HTTPS skills are exposed through `invoke_skill`; the server credential is attached only for approved CloseAI hosts, and direct image or audio results can be saved into the user's quota-controlled storage.
+
+The trained chord checkpoint is exported with `scripts/export_chord_model.py` into a browser-readable float32 tensor package. Each user receives the roughly 3 MB package in `static/chord-model/`, counted against their private storage quota. The player downloads those authenticated static files and performs the LSTM forward pass, top-k sampling, and chord decoding entirely in JavaScript; there is no chord-generation backend endpoint. The model is the supplied triad LSTM (not a Transformer) with 3,861 chord labels and a 50-chord maximum context.
 
 ## Tests
 

@@ -9,6 +9,7 @@ from flask import current_app
 
 ALLOWED_EXTENSIONS = {".html", ".css", ".js", ".json", ".md", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".mp3", ".wav", ".ogg"}
 PROTECTED_FILES = {"nav.json"}
+CHORD_MODEL_ASSETS = Path(__file__).parent / "default_assets" / "chord-model"
 FORBIDDEN_JS = re.compile(
     r"(?:window\s*\.\s*(?:top|parent)|parent\s*\.|top\s*\.|localStorage|sessionStorage|\bdocument\b|eval\s*\(|new\s+Function)",
     re.IGNORECASE,
@@ -61,6 +62,17 @@ def usage_bytes(username):
     if not root.exists():
         return 0
     return sum(path.stat().st_size for path in root.rglob("*") if path.is_file() and not path.is_symlink())
+
+
+def ensure_chord_model_assets(username):
+    destination = user_root(username) / "static" / "chord-model"
+    missing = [source for source in CHORD_MODEL_ASSETS.iterdir() if source.is_file() and not (destination / source.name).is_file()]
+    additional_bytes = sum(source.stat().st_size for source in missing)
+    if usage_bytes(username) + additional_bytes > int(current_app.config["USER_QUOTA_BYTES"]):
+        raise ValueError("The private chord model would exceed this user's storage quota")
+    destination.mkdir(parents=True, exist_ok=True)
+    for source in missing:
+        shutil.copy2(source, destination / source.name)
 
 
 def validate_content(relative, content):
@@ -149,7 +161,7 @@ def create_snapshot(username):
         if item.name == "snapshots":
             continue
         if item.is_dir():
-            shutil.copytree(item, destination / item.name)
+            shutil.copytree(item, destination / item.name, ignore=shutil.ignore_patterns("chord-model") if item.name == "static" else None)
         elif item.is_file():
             shutil.copy2(item, destination / item.name)
     return stamp
@@ -293,7 +305,7 @@ def _single_home_v6_page():
     )
 
 
-def default_home_page():
+def _single_home_v7_page():
     return _single_home_v6_page().replace(
         "Harmonic root for drone, pads and melody",
         "Shared harmonic root and binaural carrier",
@@ -301,6 +313,28 @@ def default_home_page():
         "Set a tonal anchor, then blend five evolving layers. Pads and melody follow the root harmonically; textures stay broadband and spatial effects stay pitchless.",
         "Set the shared tonal anchor for the ambient harmony and binaural carrier. Pads and melody follow it; textures stay broadband and spatial effects stay pitchless.",
     )
+
+
+def default_home_page():
+    chord_card = '''  <section class="chord-subcard" data-chord-card aria-labelledby="chord-progression-title">
+    <div class="chord-subcard-heading"><div><p>Private on-device model</p><h3 id="chord-progression-title">Chord progression</h3></div><span>Browser AI</span></div>
+    <p class="chord-help">Generate a progression that retunes the lush pads. Model inference stays in this browser; results can vary.</p>
+    <label class="chord-seed"><span>Starting chords <small>Optional · C, Amin, F, G</small></span><input data-chord-seed placeholder="C Amin F G" autocomplete="off"></label>
+    <div class="chord-settings">
+      <label><span>Progression length</span><output>8</output><input type="range" min="2" max="32" step="1" value="8" data-chord-length data-chord-range></label>
+      <label><span>Seconds per chord</span><output>4</output><input type="range" min="1" max="12" step="0.5" value="4" data-chord-duration data-chord-range></label>
+      <label><span>Creativity</span><output>1</output><input type="range" min="0.1" max="2" step="0.1" value="1" data-chord-temperature data-chord-range></label>
+      <label><span>Top choices</span><output>10</output><input type="range" min="1" max="100" step="1" value="10" data-chord-top-k data-chord-range></label>
+    </div>
+    <label class="chord-greedy"><input type="checkbox" data-chord-greedy><span>Predictable mode <small>Always choose the highest-scoring chord</small></span></label>
+    <div class="chord-results" data-chord-results aria-live="polite"><span class="empty">Your generated progression will appear here.</span></div>
+    <div class="chord-actions"><button class="chord-generate" data-chord-generate>Generate &amp; apply</button><button data-chord-play disabled>Play</button><button data-chord-stop disabled>Stop</button><button data-chord-replay disabled>Replay</button></div>
+    <p class="chord-status" data-chord-status>Model loads only when you generate.</p>
+  </section>
+'''
+    marker = '  <div class="card-transport ambient-transport" aria-label="Ambient playback">'
+    page = _single_home_v7_page()
+    return page.replace(marker, chord_card + marker, 1)
 
 
 SINGLE_HOME_STYLES = '''
@@ -322,14 +356,25 @@ SINGLE_HOME_STYLES = '''
 @media(max-width:520px){.page{padding:24px 16px 112px}.page>h1{font-size:42px}.generator-grid{margin-top:25px}.sound-card,.noise-generator-card,.volume-mixer-card{padding:20px;border-radius:24px}.card-heading h2{font-size:27px}.card-intro{margin-bottom:18px}.band-button{min-height:68px;padding:11px}.card-transport{align-items:stretch;flex-direction:column}.play-toggle{width:100%}.ambient-controls label{padding:9px 11px}.noise-type-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.master-volume-grid label{padding:13px 14px}}
 '''
 
+CHORD_PROGRESSION_STYLES = '''
+.chord-subcard{position:relative;margin-top:18px;padding:16px;border:1px solid rgba(184,216,244,.13);border-radius:20px;background:rgba(5,10,13,.34)}
+.chord-subcard-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.chord-subcard-heading p{margin:0;color:#8196a7;font-size:8px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.chord-subcard-heading h3{margin:3px 0 0;font:400 22px/1.1 Georgia,serif}.chord-subcard-heading>span{padding:4px 7px;border-radius:999px;background:#1d303d;color:#b8d8f4;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.chord-help{margin:8px 0 13px;color:#7f898e;font-size:9px}.chord-seed{display:grid;grid-template-columns:1fr 1.35fr;align-items:center;gap:10px;color:#bec5c8;font-size:9px}.chord-seed span small{display:block;color:#69747a;font-size:7px}.chord-seed input{min-width:0;width:100%;padding:9px 11px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#101719;color:#f5f1e8;outline:0}.chord-seed input:focus{border-color:#7ca5c3}.chord-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}.chord-settings label{display:grid;grid-template-columns:1fr auto;gap:5px 8px;padding:8px 10px;border:1px solid rgba(255,255,255,.055);border-radius:12px;color:#9ba5a9;font-size:8px}.chord-settings output{color:#b8d8f4;font-variant-numeric:tabular-nums}.chord-settings input{grid-column:1/-1;width:100%;height:3px;accent-color:#a9ccec}.chord-greedy{display:flex;align-items:center;gap:8px;margin:10px 1px;color:#aab3b5;font-size:9px}.chord-greedy input{accent-color:#a9ccec}.chord-greedy small{display:block;color:#657176;font-size:7px}.chord-results{display:flex;gap:6px;overflow-x:auto;min-height:36px;padding:7px;border-radius:12px;background:#0e1416}.chord-results span{flex:none;padding:5px 8px;border:1px solid rgba(184,216,244,.12);border-radius:8px;color:#aebec8;font-size:9px;transition:.2s}.chord-results span.active{border-color:#a9ccec;background:#263d4c;color:#eef7fd;transform:translateY(-1px)}.chord-results .empty{border:0;color:#657176}.chord-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.chord-actions button{padding:8px 11px;border:1px solid rgba(255,255,255,.08);border-radius:999px;background:#192226;color:#b7c2c7;font-size:8px;font-weight:700}.chord-actions .chord-generate{border:0;background:#b8d8f4;color:#10202c}.chord-actions button:disabled{cursor:not-allowed;opacity:.38}.chord-status{min-height:14px;margin:8px 2px 0;color:#718089;font-size:8px}
+@media(max-width:520px){.chord-seed{grid-template-columns:1fr}.chord-settings{grid-template-columns:1fr}.chord-actions button{flex:1}.chord-actions .chord-generate{flex-basis:100%}}
+'''
+
 
 def _ensure_single_home_styles(root):
     css_path = root / "static/user.css"
     if not css_path.is_file():
         return
     css = css_path.read_text(encoding="utf-8")
+    additions = ""
     if "single-home-v6" not in css:
-        css_path.write_text(css.rstrip() + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n", encoding="utf-8")
+        additions += "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES
+    if "single-home-v7" not in css:
+        additions += "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES
+    if additions:
+        css_path.write_text(css.rstrip() + additions + "\n", encoding="utf-8")
 
 
 def _legacy_home_page():
@@ -369,6 +414,10 @@ def migrate_legacy_default_workspace(username):
         home_path.write_text(default_home_page(), encoding="utf-8")
         _ensure_single_home_styles(root)
         return True
+    if actual == [("home", "pages/home.html")] and current_home == _single_home_v7_page():
+        home_path.write_text(default_home_page(), encoding="utf-8")
+        _ensure_single_home_styles(root)
+        return True
     if actual == [("home", "pages/home.html")] and current_home == _single_home_v2_page():
         home_path.write_text(default_home_page(), encoding="utf-8")
         _ensure_single_home_styles(root)
@@ -403,7 +452,7 @@ def initialize_user_storage(username):
     (root / "memory/plan.md").write_text("# Vibe modification log\n\n", encoding="utf-8")
     (root / "memory/changelog.md").write_text("# Resona changelog\n\n", encoding="utf-8")
     css = '''*{box-sizing:border-box}html,body{min-height:100%;background:#121611}body{margin:0;color:#f5f1e8;font:500 16px/1.5 Inter,system-ui,sans-serif}.page{width:min(1040px,100%);margin:auto;padding:clamp(28px,6vw,72px) clamp(20px,5vw,54px) 150px}.eyebrow{margin:0;color:#b9e68c;text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:800}h1{font:600 clamp(42px,8vw,82px)/.98 Georgia,serif;letter-spacing:-.05em;margin:10px 0 14px}.intro{max-width:610px;margin:0;color:#b7b5ae}.binaural-panel{margin-top:clamp(34px,6vw,68px)}.panel-heading p{margin:0;color:#858b81;font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}.panel-heading h2{margin:5px 0 18px;font:400 clamp(25px,4vw,36px) Georgia,serif}.band-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.band-button{min-height:116px;padding:18px;border:1px solid rgba(255,255,255,.1);border-radius:20px;background:#1b2019;color:#f5f1e8;text-align:left;cursor:pointer;transition:.22s}.band-button strong,.band-button span{display:block}.band-button strong{font-size:18px}.band-button span{margin-top:8px;color:#8e948a;font-size:11px}.band-button:hover,.band-button.active{transform:translateY(-2px);border-color:#8daf6e;background:#24301f;box-shadow:0 14px 34px #0005}.band-button.active strong{color:#c4ef99}.playback-control{display:flex;flex-direction:column;align-items:center;margin-top:clamp(36px,7vw,72px)}.playback-control>p{color:#9ca396;font-size:12px}.play-toggle{display:flex;align-items:center;justify-content:center;gap:12px;width:160px;height:64px;border:0;border-radius:999px;background:#b9e68c;color:#15200f;box-shadow:0 0 0 9px rgba(185,230,140,.07),0 18px 45px #0007;cursor:pointer}.play-toggle:hover{transform:scale(1.03)}.play-toggle.playing{background:#f1eee5}.play-symbol{font-size:14px}.playback-control small{margin-top:15px;color:#696e66;font-size:10px;text-transform:uppercase;letter-spacing:.12em}@media(max-width:760px){.band-grid{grid-template-columns:repeat(2,1fr)}.band-button:last-child{grid-column:1/-1}.page{padding-top:28px}}@media(max-width:430px){h1{font-size:44px}.band-button{min-height:92px;padding:14px}.binaural-panel{margin-top:30px}.playback-control{margin-top:34px}}'''
-    (root / "static/user.css").write_text(css.rstrip() + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n", encoding="utf-8")
+    (root / "static/user.css").write_text(css.rstrip() + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES + "\n", encoding="utf-8")
     (root / "static/custom_synth.js").write_text("window.ResonaCustomSynth = { version: 1, configure(engine) { engine.config.carrier = engine.config.ambient.droneFrequency; } };\n", encoding="utf-8")
     icon_paths = {"home": "M3 12h3l2-6 4 12 3-9 2 3h4"}
     for icon_name, path_data in icon_paths.items():
@@ -412,6 +461,7 @@ def initialize_user_storage(username):
     pages = {"home.html": default_home_page()}
     for name, content in pages.items():
         (root / "pages" / name).write_text(content, encoding="utf-8")
+    ensure_chord_model_assets(username)
 
 
 def reset_user_ui(username):

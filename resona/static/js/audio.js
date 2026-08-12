@@ -5,10 +5,14 @@
       this.playing = false;
       this.ambientPlaying = false;
       this.noisePlaying = false;
+      this.chordProgressionPlaying = false;
+      this.chordProgressionPaused = false;
+      this.chordProgressionIndex = 0;
+      this.chordTimer = null;
       this.nodes = [];
       this.ambientNodes = [];
       this.noiseNodes = [];
-      this.config = { carrier: 200, beat: 6, noise: 'pink', master: .34, volumes: { binaural: 50, ambient: 50, noise: 50 }, layers: { pad: .72, flute: .38, strings: .51, bells: .24 }, ambient: { droneFrequency: 200, drone: 48, pads: 64, textures: 32, melody: 24, spatial: 46 } };
+      this.config = { carrier: 200, beat: 6, noise: 'pink', master: .34, volumes: { binaural: 50, ambient: 50, noise: 50 }, layers: { pad: .72, flute: .38, strings: .51, bells: .24 }, ambient: { droneFrequency: 200, drone: 48, pads: 64, textures: 32, melody: 24, spatial: 46, chordProgression:[], chordDuration:4 } };
       if (window.ResonaCustomSynth && typeof window.ResonaCustomSynth.configure === 'function') window.ResonaCustomSynth.configure(this);
       this.config.ambient.droneFrequency = Math.max(40, Math.min(400, Number(this.config.ambient.droneFrequency) || 200));
       this.config.carrier = this.config.ambient.droneFrequency;
@@ -78,6 +82,40 @@
       const frequencies = this.ambientFrequencies(root), now = this.context.currentTime;
       Object.entries(frequencies).forEach(([layer, values]) => this.ambientOscillators[layer].forEach((oscillator, index) => oscillator.frequency.setTargetAtTime(values[index], now, .35)));
     }
+    chordFrequencies(chord) {
+      const noteOffsets = { C:0, Cs:1, Db:1, D:2, Ds:3, Eb:3, E:4, F:5, Fs:6, Gb:6, G:7, Gs:8, Ab:8, A:9, As:10, Bb:10, B:11 };
+      const name = String(chord || 'C').split('/')[0], rootName = Object.keys(noteOffsets).sort((a,b) => b.length-a.length).find(note => name.startsWith(note)) || 'C', quality = name.slice(rootName.length).toLowerCase();
+      let intervals = quality.includes('dim') ? [0,3,6] : quality.includes('aug') ? [0,4,8] : quality.includes('sus2') ? [0,2,7] : quality.includes('sus') ? [0,5,7] : quality.includes('min') && !quality.includes('maj') ? [0,3,7] : [0,4,7];
+      if (quality.includes('maj7')) intervals.push(11); else if (quality.includes('7')) intervals.push(10); else intervals.push(12);
+      return intervals.slice(0,4).map(interval => this.config.ambient.droneFrequency * Math.pow(2, (noteOffsets[rootName] + interval) / 12));
+    }
+    applyProgressionChord() {
+      const chords = this.config.ambient.chordProgression;
+      if (!this.ambientPlaying || !this.ambientOscillators || !chords.length) return;
+      const frequencies = this.chordFrequencies(chords[this.chordProgressionIndex]), now = this.context.currentTime;
+      this.ambientOscillators.pads.forEach((oscillator, index) => oscillator.frequency.setTargetAtTime(frequencies[index], now, .4));
+      this.notifyState();
+    }
+    scheduleProgression() {
+      clearInterval(this.chordTimer); this.chordTimer = null;
+      if (!this.chordProgressionPlaying || this.chordProgressionPaused || !this.config.ambient.chordProgression.length) return;
+      this.applyProgressionChord();
+      this.chordTimer = setInterval(() => { this.chordProgressionIndex = (this.chordProgressionIndex + 1) % this.config.ambient.chordProgression.length; this.applyProgressionChord(); }, this.config.ambient.chordDuration * 1000);
+    }
+    setChordProgression(chords, duration) {
+      this.config.ambient.chordProgression = Array.isArray(chords) ? chords.slice(0,64).map(String) : [];
+      this.config.ambient.chordDuration = Math.max(.5, Math.min(16, Number(duration) || 4));
+      this.chordProgressionIndex = 0; this.chordProgressionPlaying = Boolean(this.config.ambient.chordProgression.length); this.chordProgressionPaused = false;
+      if (!this.ambientPlaying && this.chordProgressionPlaying) this.startAmbient(); else this.scheduleProgression();
+    }
+    toggleChordProgression() {
+      if (!this.config.ambient.chordProgression.length) return;
+      if (!this.ambientPlaying) this.startAmbient();
+      this.chordProgressionPlaying = true; this.chordProgressionPaused = !this.chordProgressionPaused; this.scheduleProgression(); this.notifyState();
+    }
+    stopChordProgression() { clearInterval(this.chordTimer); this.chordTimer = null; this.chordProgressionPlaying = false; this.chordProgressionPaused = false; this.chordProgressionIndex = 0; this.notifyState(); }
+    replayChordProgression() { if (!this.config.ambient.chordProgression.length) return; this.chordProgressionIndex = 0; this.chordProgressionPlaying = true; this.chordProgressionPaused = false; if (!this.ambientPlaying) this.startAmbient(); else this.scheduleProgression(); this.notifyState(); }
+    notifyState() { window.dispatchEvent(new CustomEvent('resona:audio-state-change')); }
     startAmbient() {
       if (this.ambientPlaying) return;
       const ctx = this.ensureContext(), output = ctx.createGain(), bus = ctx.createGain();
@@ -103,9 +141,9 @@
       frequencies.melody.forEach((frequency, index) => { const oscillator = ctx.createOscillator(); oscillator.type = 'sine'; oscillator.frequency.value = frequency; oscillator.detune.value = [-5, 7, -8, 4][index]; oscillator.connect(melodyGain); oscillator.start(); ambientOscillators.melody.push(oscillator); this.ambientNodes.push(oscillator); });
 
       this.ambientNodes.push(texture, textureFilter, textureGain, textureLfo, textureDepth, melodyLfo, melodyDepth, melodyGain, droneGain, padGain, bus, panner, delay, wet, feedback, output); if (panLfo) this.ambientNodes.push(panLfo, panDepth);
-      this.ambientOutput = output; this.ambientGains = { drone:droneGain, pads:padGain, textures:textureGain, melody:melodyGain }; this.ambientOscillators = ambientOscillators; this.ambientSpatial = { delay, wet, feedback, panDepth }; this.ambientPlaying = true;
+      this.ambientOutput = output; this.ambientGains = { drone:droneGain, pads:padGain, textures:textureGain, melody:melodyGain }; this.ambientOscillators = ambientOscillators; this.ambientSpatial = { delay, wet, feedback, panDepth }; this.ambientPlaying = true; if (this.config.ambient.chordProgression.length) { this.chordProgressionPlaying = true; this.chordProgressionPaused = false; this.scheduleProgression(); }
     }
-    stopAmbient() { if (!this.ambientPlaying) return; const now = this.context.currentTime, nodes = this.ambientNodes.slice(); this.ambientOutput.gain.cancelScheduledValues(now); this.ambientOutput.gain.setValueAtTime(Math.max(this.ambientOutput.gain.value, .0001), now); this.ambientOutput.gain.exponentialRampToValueAtTime(.0001, now + 1); setTimeout(() => nodes.forEach(node => { try { if (node.stop) node.stop(); else node.disconnect(); } catch (_) {} }), 1100); this.ambientNodes = []; this.ambientOscillators = null; this.ambientPlaying = false; }
+    stopAmbient() { if (!this.ambientPlaying) return; clearInterval(this.chordTimer); this.chordTimer = null; this.chordProgressionPlaying = false; const now = this.context.currentTime, nodes = this.ambientNodes.slice(); this.ambientOutput.gain.cancelScheduledValues(now); this.ambientOutput.gain.setValueAtTime(Math.max(this.ambientOutput.gain.value, .0001), now); this.ambientOutput.gain.exponentialRampToValueAtTime(.0001, now + 1); setTimeout(() => nodes.forEach(node => { try { if (node.stop) node.stop(); else node.disconnect(); } catch (_) {} }), 1100); this.ambientNodes = []; this.ambientOscillators = null; this.ambientPlaying = false; }
     toggleAmbient() { this.ambientPlaying ? this.stopAmbient() : this.startAmbient(); return this.ambientPlaying; }
     setAmbient(name, value) { if (!(name in this.config.ambient)) return; const level = Math.max(0, Math.min(100, Number(value))); this.config.ambient[name] = level; if (!this.ambientPlaying) return; const now = this.context.currentTime; const scales = { drone:.10, pads:.035, textures:.10, melody:.025 }; if (name in scales) this.ambientGains[name].gain.setTargetAtTime(scales[name] * level / 100, now, .12); else { this.ambientSpatial.delay.delayTime.setTargetAtTime(.22 + level / 180, now, .2); this.ambientSpatial.wet.gain.setTargetAtTime(.28 * level / 100, now, .2); this.ambientSpatial.feedback.gain.setTargetAtTime(.13 + .22 * level / 100, now, .2); if (this.ambientSpatial.panDepth) this.ambientSpatial.panDepth.gain.setTargetAtTime(level / 100, now, .2); } }
   }

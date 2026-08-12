@@ -27,6 +27,10 @@ def test_registration_creates_isolated_default_workspace(app, registered):
         assert "data-ambient=\"drone\"" in safe_path("listener", "pages/home.html").read_text()
         assert "data-drone-frequency" in safe_path("listener", "pages/home.html").read_text()
         assert "200 Hz" in safe_path("listener", "pages/home.html").read_text()
+        assert "data-chord-card" in safe_path("listener", "pages/home.html").read_text()
+        assert "data-chord-duration" in safe_path("listener", "pages/home.html").read_text()
+        assert "data-chord-temperature" in safe_path("listener", "pages/home.html").read_text()
+        assert "data-chord-top-k" in safe_path("listener", "pages/home.html").read_text()
         assert "Minimal melodic elements" in safe_path("listener", "pages/home.html").read_text()
         assert "volume-mixer-card" in safe_path("listener", "pages/home.html").read_text()
         assert "data-volume=\"binaural\"" in safe_path("listener", "pages/home.html").read_text()
@@ -41,6 +45,11 @@ def test_registration_creates_isolated_default_workspace(app, registered):
         assert safe_path("listener", "memory/plan.md").exists()
         assert safe_path("listener", "memory/changelog.md").exists()
         assert usage_bytes("listener") > 0
+        model_manifest = safe_path("listener", "static/chord-model/model.json")
+        model_weights = safe_path("listener", "static/chord-model/weights.bin")
+        assert model_manifest.exists() and model_weights.stat().st_size == 2_790_324
+        architecture = json.loads(model_manifest.read_text())["architecture"]
+        assert architecture == {"representation":"triad", "modelType":"lstm", "embeddingDimension":16, "hiddenDimension":256, "layers":1, "partSizes":[18,56,18], "vocabularySize":3861, "maximumContext":50}
     response = registered.get("/player/")
     assert response.status_code == 200
     assert b"How can I help you heal today?" in response.data
@@ -233,7 +242,7 @@ def test_player_upgrades_untouched_single_home_to_ambient_generator(app, registe
         styles = safe_path("listener", "static/user.css").read_text()
         assert "Ambient music generator" in home
         assert "data-ambient-toggle" in home
-        assert "single-home-v6" in styles
+        assert "single-home-v7" in styles
 
 
 def test_player_upgrades_untouched_ambient_home_to_master_volume_card(app, registered):
@@ -288,6 +297,19 @@ def test_player_upgrades_drone_control_to_shared_binaural_carrier(app, registere
         assert "ambient harmony and binaural carrier" in home
 
 
+def test_player_upgrades_shared_carrier_home_to_private_chord_model(app, registered):
+    from resona.user_storage import _single_home_v7_page
+
+    with app.app_context():
+        safe_path("listener", "pages/home.html").write_text(_single_home_v7_page(), encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        home = safe_path("listener", "pages/home.html").read_text()
+        assert "Private on-device model" in home
+        assert "Generate &amp; apply" in home
+        assert "data-chord-length" in home
+
+
 def test_authentication_gate_blocks_other_user_storage(app, registered):
     with app.app_context():
         from resona.user_storage import initialize_user_storage
@@ -316,6 +338,11 @@ def test_user_pages_use_opaque_script_sandbox_and_strict_csp(registered):
     assert b"'binaural','ambient','noise'" in registered.get("/static/js/player.js").data
     assert b"toggleAmbient" in registered.get("/static/js/player.js").data
     assert b"startAmbient()" in registered.get("/static/js/audio.js").data
+    assert b"generateChordProgression" in registered.get("/static/js/player.js").data
+    assert b"new window.ResonaChordModel" in registered.get("/static/js/player.js").data
+    assert b"/api/generate" not in registered.get("/static/js/player.js").data
+    assert b"runContext(chordIds)" in registered.get("/static/js/chord-model.js").data
+    assert b"fetch(base + 'model.json')" in registered.get("/static/js/chord-model.js").data
     assert b"data-ambient-toggle" in page.data
     assert b"toggleNoise" in registered.get("/static/js/player.js").data
     assert b"startNoise()" in registered.get("/static/js/audio.js").data
@@ -358,6 +385,15 @@ def test_binaural_pair_is_symmetric_around_drone_frequency(registered):
     assert "right:center + beat / 2" in pair
     assert "this.left.frequency.setTargetAtTime(pair.left" in update
     assert "this.right.frequency.setTargetAtTime(pair.right" in update
+
+
+def test_chord_progression_retunes_ambient_pads_in_browser(registered):
+    audio = registered.get("/static/js/audio.js").get_data(as_text=True)
+    chord_logic = audio.split("    chordFrequencies(", 1)[1].split("    startAmbient()", 1)[0]
+    assert "this.config.ambient.droneFrequency * Math.pow(2" in chord_logic
+    assert "this.ambientOscillators.pads.forEach" in chord_logic
+    assert "setInterval" in chord_logic
+    assert "setChordProgression(chords, duration)" in chord_logic
 
 
 def test_path_traversal_is_rejected(app):

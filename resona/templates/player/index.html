@@ -38,5 +38,6 @@
 <script id="nav-data" type="application/json">{{ nav|tojson }}</script>
 <script src="{{ url_for('storage.asset', username=g.user.username, asset_path='static/custom_synth.js') }}"></script>
 <script src="{{ url_for('static', filename='js/audio.js') }}"></script>
+<script src="{{ url_for('static', filename='js/chord-model.js') }}"></script>
 <script src="{{ url_for('static', filename='js/player.js') }}"></script>
 {% endblock %}
