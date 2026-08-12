@@ -54,4 +54,21 @@ The trained chord checkpoint is exported with `scripts/export_chord_model.py` in
 .venv/bin/python -m pytest -q
 ```
 
+## Production deployment
+
+The `Deploy Resona` GitHub Actions workflow deploys pushes to `main` (or manual runs) to `resonahost@157.245.192.56`, installs missing Ubuntu packages, installs and verifies Python dependencies, and runs Resona with Gunicorn behind Nginx at `https://resona.neuorise.com`.
+
+Configure these GitHub repository or `production` environment secrets before running it:
+
+- `SSH_PRIVATE_KEY`: private key authorized for `resonahost`
+- `SECRET_KEY`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
+- `CLOSEAI_API_KEY`
+- `LETSENCRYPT_EMAIL`: email used to register the Let’s Encrypt certificate
+
+The `resonahost` account must already exist and have non-interactive `sudo` access for package, systemd, Nginx, and Certbot management. DNS for `resona.neuorise.com` must point to `157.245.192.56`, and inbound ports 80 and 443 must be open. Deployment obtains or reuses a Let’s Encrypt certificate through the webroot challenge, enables automatic renewal, redirects HTTP to HTTPS, enables HSTS, verifies the live certificate locally, and sets `SESSION_COOKIE_SECURE=1`.
+
+Deployments synchronize application code into `/opt/resona` while explicitly excluding `.env`, `.venv`, and the entire `instance/` directory. Consequently, `instance/resona.sqlite3`, user storage, and other persistent state are retained. Before restarting the service, the workflow also keeps the five newest SQLite copies under `instance/backups/`.
+
 The development server is not intended for production. Deploy behind a production WSGI server and TLS, set `SESSION_COOKIE_SECURE=1`, and back up the database and storage volume together. Environment-managed provider credentials are preferred for production; credentials saved through the control center are stored in the Resona database and are never rendered back to administrators or clients.

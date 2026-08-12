@@ -1,0 +1,14 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name resona.neuorise.com;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+    }
+
+    location / {
+        return 301 https://resona.neuorise.com$request_uri;
+    }
+}

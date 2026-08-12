@@ -41,6 +41,40 @@ def test_agent_prompt_and_model_admin_edits_survive_database_reinitialization(ap
         assert get_db().execute("SELECT value FROM settings WHERE key = 'closeai_model'").fetchone()["value"] == "custom-admin-model"
 
 
+def test_production_deployment_preserves_instance_and_uses_expected_host():
+    from pathlib import Path
+
+    root = Path(__file__).parents[1]
+    workflow = (root / ".github/workflows/deploy.yml").read_text()
+    service = (root / "deploy/resona.service").read_text()
+    nginx = (root / "deploy/resona.nginx").read_text()
+    http_nginx = (root / "deploy/resona-http.nginx").read_text()
+    finalize = (root / "deploy/finalize-ubuntu.sh").read_text()
+    assert "DEPLOY_HOST: 157.245.192.56" in workflow
+    assert "DEPLOY_USER: resonahost" in workflow
+    assert "secrets.SSH_PRIVATE_KEY" in workflow
+    assert "--exclude='instance/'" in workflow
+    assert "--exclude='.env'" in workflow
+    assert "DATABASE_PATH" in (root / "deploy/render_env.py").read_text()
+    assert "User=resonahost" in service
+    assert "run:app" in service
+    assert "server_name resona.neuorise.com" in nginx
+    assert "listen 443 ssl" in nginx
+    assert "ssl_certificate /etc/letsencrypt/live/resona.neuorise.com/fullchain.pem" in nginx
+    assert "Strict-Transport-Security" in nginx
+    assert "return 301 https://resona.neuorise.com$request_uri" in http_nginx
+    assert "proxy_pass http://unix:/run/resona/resona.sock" in nginx
+    assert "instance/backups" in finalize
+    assert "certbot certonly" in finalize
+    assert "certbot.timer" in finalize
+    assert "https://resona.neuorise.com/" in finalize
+    assert "pip check" in finalize
+    assert "nginx -t" in finalize
+    rendered_env = (root / "deploy/render_env.py").read_text()
+    assert '"PUBLIC_BASE_URL": "https://resona.neuorise.com"' in rendered_env
+    assert '"SESSION_COOKIE_SECURE": "1"' in rendered_env
+
+
 def test_registration_creates_isolated_default_workspace(app, registered):
     with app.app_context():
         user_columns = {row["name"] for row in get_db().execute("PRAGMA table_info(users)").fetchall()}

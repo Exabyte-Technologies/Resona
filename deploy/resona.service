@@ -1,0 +1,25 @@
+[Unit]
+Description=Resona healing music application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=resonahost
+Group=www-data
+WorkingDirectory=/opt/resona
+EnvironmentFile=/opt/resona/.env
+RuntimeDirectory=resona
+RuntimeDirectoryMode=0750
+UMask=0007
+ExecStart=/opt/resona/.venv/bin/gunicorn --workers 3 --timeout 7200 --graceful-timeout 30 --bind unix:/run/resona/resona.sock run:app
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/resona/instance /run/resona
+
+[Install]
+WantedBy=multi-user.target
