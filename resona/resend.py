@@ -69,6 +69,25 @@ def send_welcome_email(recipient, username):
     )
 
 
+def send_email_verification_email(recipient, display_name, verification_url, purpose="registration"):
+    safe_name = html.escape(display_name)
+    safe_url = html.escape(verification_url, quote=True)
+    changing = purpose == "email_change"
+    subject = "Confirm your new Resona email" if changing else "Verify your Resona email"
+    introduction = "Confirm this new email address for your Resona account." if changing else "Verify your email address to finish setting up your Resona account."
+    return send_email(
+        recipient,
+        subject,
+        (
+            f"<p>Hi {safe_name},</p>"
+            f"<p>{html.escape(introduction)}</p>"
+            f'<p><a href="{safe_url}">Verify my email</a></p>'
+            "<p>This link expires in 24 hours. If you did not request this, you can safely ignore it.</p>"
+        ),
+        f"Hi {display_name}, {introduction}\n\n{verification_url}\n\nThis link expires in 24 hours.",
+    )
+
+
 def send_password_reset_email(recipient, username, reset_url):
     safe_username = html.escape(username)
     safe_url = html.escape(reset_url, quote=True)

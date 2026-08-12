@@ -6,6 +6,8 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db
+from .captcha import require_captcha
+from .email_verification import issue_email_verification, verification_record
 from .resend import resend_is_configured, send_password_reset_email, send_welcome_email
 from .security import USERNAME_RE, login_required, require_csrf
 from .user_storage import initialize_user_storage
@@ -18,12 +20,16 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 def register():
     if request.method == "POST":
         require_csrf()
+        require_captcha()
         username = request.form.get("username", "").strip().lower()
+        display_name = request.form.get("display_name", "").strip()
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
         error = None
         if not USERNAME_RE.fullmatch(username):
             error = "Use 3–32 lowercase letters, numbers, underscores, or hyphens."
+        elif not display_name or len(display_name) > 80:
+            error = "Enter a display name between 1 and 80 characters."
         elif "@" not in email:
             error = "Enter a valid email address."
         elif len(password) < 10:
@@ -32,23 +38,25 @@ def register():
             db = get_db()
             try:
                 cursor = db.execute(
-                    "INSERT INTO users(username, email, password_hash) VALUES (?, ?, ?)",
-                    (username, email, generate_password_hash(password, method="pbkdf2:sha256:600000")),
+                    "INSERT INTO users(username, email, display_name, password_hash) VALUES (?, ?, ?, ?)",
+                    (username, email, display_name, generate_password_hash(password, method="pbkdf2:sha256:600000")),
                 )
+                verification_token = issue_email_verification(cursor.lastrowid, display_name, email, "registration")
                 db.commit()
                 initialize_user_storage(username)
-                if resend_is_configured():
-                    try:
-                        send_welcome_email(email, username)
-                    except Exception:
-                        current_app.logger.exception("Resend could not deliver the registration email for user %s", username)
                 session.clear()
                 session["user_id"] = cursor.lastrowid
                 session["csrf_token"] = secrets.token_urlsafe(32)
+                if current_app.testing and not resend_is_configured():
+                    session["testing_verification_token"] = verification_token
+                flash("Account created. Check your inbox to verify your email.", "success")
                 return redirect(url_for("player.index"))
             except Exception as exc:
+                db.rollback()
                 if "UNIQUE constraint" in str(exc):
                     error = "That username or email is already registered."
+                elif "Resend" in str(exc):
+                    error = "Email verification is temporarily unavailable. Please try again later."
                 else:
                     error = "We couldn't create the account. Please try again."
         flash(error, "error")
@@ -59,6 +67,7 @@ def register():
 def login():
     if request.method == "POST":
         require_csrf()
+        require_captcha()
         identity = request.form.get("identity", "").strip().lower()
         user = get_db().execute(
             "SELECT * FROM users WHERE username = ? OR email = ?", (identity, identity)
@@ -73,6 +82,36 @@ def login():
             return redirect(destination)
         flash("The username or password doesn't match.", "error")
     return render_template("auth/login.html")
+
+
+@auth_bp.get("/verify-email/<token>")
+def verify_email(token):
+    row = verification_record(token)
+    if not row:
+        flash("That verification link is invalid or expired.", "error")
+        return redirect(url_for("auth.login"))
+    db = get_db()
+    try:
+        if row["purpose"] == "email_change":
+            db.execute("UPDATE users SET email = ?, email_verified_at = CURRENT_TIMESTAMP WHERE id = ?", (row["email"], row["user_id"]))
+        else:
+            db.execute("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP WHERE id = ? AND email = ?", (row["user_id"], row["email"]))
+        db.execute("UPDATE email_verifications SET used_at = CURRENT_TIMESTAMP WHERE id = ?", (row["id"],))
+        db.commit()
+        if row["purpose"] == "registration" and resend_is_configured():
+            user = db.execute("SELECT username, display_name FROM users WHERE id = ?", (row["user_id"],)).fetchone()
+            try:
+                send_welcome_email(row["email"], user["display_name"] or user["username"])
+            except Exception:
+                current_app.logger.exception("Resend could not deliver the welcome email for user %s", user["username"])
+        flash("Your email has been verified.", "success")
+    except Exception as exc:
+        db.rollback()
+        if "UNIQUE constraint" in str(exc):
+            flash("That email address is already registered.", "error")
+        else:
+            raise
+    return redirect(url_for("account.settings") if session.get("user_id") == row["user_id"] else url_for("auth.login"))
 
 
 @auth_bp.post("/logout")

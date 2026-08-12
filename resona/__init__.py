@@ -26,6 +26,8 @@ def create_app(test_config=None):
         RESEND_FROM_NAME=os.getenv("RESEND_FROM_NAME", "Resona").strip(),
         PUBLIC_BASE_URL=os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/"),
         AGENT_MAX_STEPS=int(os.getenv("AGENT_MAX_STEPS", "80")),
+        CAPTCHA_CHALLENGE_COUNT=int(os.getenv("CAPTCHA_CHALLENGE_COUNT", "50")),
+        CAPTCHA_CHALLENGE_DIFFICULTY=int(os.getenv("CAPTCHA_CHALLENGE_DIFFICULTY", "4")),
         AGENT_TRACE=False,
         ADMIN_USERNAME=os.getenv("ADMIN_USERNAME", "admin").strip().lower(),
         ADMIN_PASSWORD=os.getenv("ADMIN_PASSWORD", ""),
@@ -53,12 +55,17 @@ def create_app(test_config=None):
     from .player import player_bp
     from .agent import agent_bp
     from .storage import storage_bp
+    from .account import account_bp
+    from .captcha import captcha_bp, init_captcha
 
+    init_captcha(app)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(player_bp)
     app.register_blueprint(agent_bp)
     app.register_blueprint(storage_bp)
+    app.register_blueprint(account_bp)
+    app.register_blueprint(captcha_bp)
 
     @app.get("/")
     def home():
@@ -70,7 +77,7 @@ def create_app(test_config=None):
 
         user_id = session.get("user_id")
         g.user = get_db().execute(
-            "SELECT id, username, email, is_admin, created_at FROM users WHERE id = ?",
+            "SELECT id, username, email, display_name, email_verified_at, is_admin, created_at FROM users WHERE id = ?",
             (user_id,),
         ).fetchone() if user_id else None
 
@@ -81,8 +88,9 @@ def create_app(test_config=None):
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault(
             "Content-Security-Policy",
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-src 'self'; font-src 'self'",
+            "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-src 'self'; "
+            "worker-src 'self' blob:; font-src 'self'",
         )
         return response
 

@@ -166,7 +166,11 @@ def index():
                 item["icon_path"] = "/".join(item["icon_path"].split("/")[3:])
     except (ValueError, json.JSONDecodeError, OSError):
         abort(500, "Navigation is invalid. Ask an admin to restore your last snapshot.")
-    return render_template("player/index.html", nav=nav)
+    pending = get_db().execute(
+        "SELECT email FROM email_verifications WHERE user_id = ? AND purpose = 'email_change' AND used_at IS NULL ORDER BY id DESC LIMIT 1",
+        (g.user["id"],),
+    ).fetchone()
+    return render_template("player/index.html", nav=nav, pending_email=pending["email"] if pending else None)
 
 
 @player_bp.get("/api/history")

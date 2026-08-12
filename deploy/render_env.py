@@ -8,6 +8,8 @@ REQUIRED = (
     "ADMIN_USERNAME",
     "ADMIN_PASSWORD",
     "CLOSEAI_API_KEY",
+    "RESEND_API_KEY",
+    "RESEND_FROM_EMAIL",
     "LETSENCRYPT_EMAIL",
 )
 
@@ -34,6 +36,11 @@ def main():
         "CLOSEAI_BASE_URL": "https://api.openai-proxy.org",
         "CLOSEAI_API_KEY": os.environ["CLOSEAI_API_KEY"],
         "CLOSEAI_MODEL": "gpt-5.6-sol",
+        "RESEND_API_KEY": os.environ["RESEND_API_KEY"],
+        "RESEND_FROM_EMAIL": os.environ["RESEND_FROM_EMAIL"],
+        "RESEND_FROM_NAME": "Resona",
+        "CAPTCHA_CHALLENGE_COUNT": "50",
+        "CAPTCHA_CHALLENGE_DIFFICULTY": "4",
         "LETSENCRYPT_EMAIL": os.environ["LETSENCRYPT_EMAIL"],
         "PUBLIC_BASE_URL": "https://resona.neuorise.com",
         "SESSION_COOKIE_SECURE": "1",

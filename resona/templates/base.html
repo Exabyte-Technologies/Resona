@@ -6,6 +6,8 @@
   <meta name="theme-color" content="#111510">
   <title>{% block title %}Resona{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <script defer src="{{ url_for('static', filename='js/captcha.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='vendor/capjs/cap.min.js') }}"></script>
 </head>
 <body class="{% block body_class %}{% endblock %}">
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -14,4 +16,3 @@
   {% block body %}{% endblock %}
 </body>
 </html>
-

@@ -6,7 +6,7 @@ from flask import current_app, g
 from werkzeug.security import generate_password_hash
 
 
-AGENT_PROMPT_VERSION = "resona-ai-2026-08-12"
+AGENT_PROMPT_VERSION = "resona-ai-mobile-2026-08-12"
 AGENT_MODEL_VERSION = "gpt-5.6-sol-2026-08-12"
 DEFAULT_AGENT_MODEL = "gpt-5.6-sol"
 
@@ -35,8 +35,15 @@ def close_db(_error=None):
 
 def init_db():
     db = get_db()
+    existing_user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
     schema = Path(current_app.root_path) / "schema.sql"
     db.executescript(schema.read_text(encoding="utf-8"))
+    if existing_user_columns and "display_name" not in existing_user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
+    if existing_user_columns and "email_verified_at" not in existing_user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN email_verified_at TEXT")
+        db.execute("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP")
+    db.execute("UPDATE users SET display_name = username WHERE display_name IS NULL OR trim(display_name) = ''")
     prompt_version = db.execute("SELECT value FROM settings WHERE key = 'agent_prompt_version'").fetchone()["value"]
     if prompt_version != AGENT_PROMPT_VERSION:
         db.execute("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'agent_system_prompt'", (default_agent_prompt(),))

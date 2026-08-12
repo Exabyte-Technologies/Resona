@@ -1,4 +1,5 @@
 import pytest
+from capjs_server.testing import solve
 
 from resona import create_app
 from resona.db import get_db
@@ -17,6 +18,8 @@ def app(tmp_path):
         "RESEND_FROM_NAME": "Resona",
         "PUBLIC_BASE_URL": "https://resona.test",
         "ADMIN_PASSWORD": "",
+        "CAPTCHA_CHALLENGE_COUNT": 2,
+        "CAPTCHA_CHALLENGE_DIFFICULTY": 1,
     })
     yield app
 
@@ -32,11 +35,26 @@ def csrf(client, path="/auth/register"):
         return session["csrf_token"]
 
 
+def solve_captcha(client):
+    challenge = client.post("/captcha/challenge").get_json()
+    solutions = solve(challenge["token"], challenge["challenge"])
+    result = client.post("/captcha/redeem", json={"token": challenge["token"], "solutions": solutions})
+    assert result.status_code == 200
+    return result.get_json()["token"]
+
+
 @pytest.fixture()
-def registered(client):
+def captcha(client):
+    return lambda: solve_captcha(client)
+
+
+@pytest.fixture()
+def registered(client, captcha):
     token = csrf(client)
     response = client.post("/auth/register", data={
         "csrf_token": token,
+        "cap-token": captcha(),
+        "display_name": "Listener",
         "username": "listener",
         "email": "listener@example.com",
         "password": "healing-sound-123",

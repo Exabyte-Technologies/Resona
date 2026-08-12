@@ -2,6 +2,7 @@
   const app = document.querySelector('#app'); if (!app) return;
   const csrf = app.dataset.csrf, username = app.dataset.username, frame = document.querySelector('#dynamic-page'), loader = document.querySelector('#frame-loading');
   const sheet = document.querySelector('#agent-sheet'), backdrop = document.querySelector('#sheet-backdrop'), prompt = document.querySelector('#agent-prompt'), status = document.querySelector('#agent-status');
+  const accountDialog = document.querySelector('#account-dialog'), agentCaptchaDialog = document.querySelector('#agent-captcha-dialog'), agentCapWidget = document.querySelector('#agent-cap-widget'), continueAgentRequest = document.querySelector('#continue-agent-request');
   const chordModel = new window.ResonaChordModel(username);
   const PROVIDER_CREDENTIAL_PLACEHOLDER = '{{RESONA_SERVER_API_KEY}}';
   const api = (url, options = {}) => fetch(url, { ...options, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf, ...(options.headers || {}) } });
@@ -136,10 +137,44 @@
   function openSheet(){ sheet.classList.add('open'); backdrop.classList.add('open'); setTimeout(() => prompt.focus(), 350); }
   function closeSheet(){ sheet.classList.remove('open'); backdrop.classList.remove('open'); }
   document.querySelector('#mic-button').addEventListener('click', openSheet); document.querySelector('#sheet-close').addEventListener('click', closeSheet); backdrop.addEventListener('click', closeSheet); document.addEventListener('keydown', e => { if(e.key === 'Escape') closeSheet(); });
+  document.querySelector('#account-button').addEventListener('click', () => accountDialog.showModal());
+  document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
+  document.querySelectorAll('.secure-dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); }));
+  const accountForm = document.querySelector('[data-account-form]');
+  accountForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget, formStatus = form.querySelector('[data-account-status]'), submit = form.querySelector('[type="submit"]'), cap = form.querySelector('cap-widget');
+    submit.disabled = true; formStatus.textContent = 'Saving securely…';
+    try {
+      const body = new FormData(form); if (event.submitter?.name) body.set(event.submitter.name, event.submitter.value);
+      const response = await fetch(form.action, { method:'POST', headers:{'Accept':'application/json','X-CSRF-Token':csrf}, body });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Account update failed');
+      formStatus.textContent = data.message;
+      document.querySelector('#account-button span').textContent = form.elements.display_name.value.trim();
+      form.elements.current_password.value = ''; form.elements.new_password.value = '';
+    } catch (error) { formStatus.textContent = error.message; }
+    finally { submit.disabled = false; cap.reset(); }
+  });
   document.querySelectorAll('#prompt-examples button').forEach(button => button.addEventListener('click', () => { prompt.value = button.textContent.replace(/^“|”$/g,''); prompt.focus(); }));
   const recognition = window.SpeechRecognition || window.webkitSpeechRecognition; const voice = document.querySelector('#voice-button');
   if (recognition) { const listener = new recognition(); listener.interimResults = true; listener.continuous = false; listener.onstart = () => { voice.classList.add('listening'); document.querySelector('#agent-orb').classList.add('listening'); status.textContent = 'Listening…'; }; listener.onresult = e => { prompt.value = Array.from(e.results).map(r => r[0].transcript).join(''); }; listener.onend = () => { voice.classList.remove('listening'); document.querySelector('#agent-orb').classList.remove('listening'); status.textContent = ''; }; voice.addEventListener('click', () => listener.start()); } else voice.hidden = true;
-  document.querySelector('#agent-form').addEventListener('submit', async event => { event.preventDefault(); const value = prompt.value.trim(); if (!value) return; status.innerHTML = '<span class="thinking"></span> Inspecting files and working until your request is complete…'; event.currentTarget.classList.add('busy'); try { const response = await api('/agent/modify', {method:'POST', body:JSON.stringify({prompt:value,credential:PROVIDER_CREDENTIAL_PLACEHOLDER})}); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Modification failed'); status.textContent = `${data.summary} · ${data.steps} agent steps`; setTimeout(() => location.reload(), 1500); } catch (error) { status.textContent = error.message; event.currentTarget.classList.remove('busy'); } });
+  let pendingAgentPrompt = '';
+  async function sendAgentRequest(value, capToken = null) {
+    const form = document.querySelector('#agent-form');
+    pendingAgentPrompt = value; status.innerHTML = '<span class="thinking"></span> Inspecting files and working until your request is complete…'; form.classList.add('busy');
+    try {
+      const response = await api('/agent/modify', {method:'POST', body:JSON.stringify({prompt:value,credential:PROVIDER_CREDENTIAL_PLACEHOLDER,cap_token:capToken})});
+      const data = await response.json();
+      if (data.captcha_required) { status.textContent = 'Complete the security check to continue.'; agentCapWidget.reset(); continueAgentRequest.disabled = true; agentCaptchaDialog.showModal(); return; }
+      if (!response.ok) throw new Error(data.error || 'Modification failed');
+      status.textContent = `${data.summary} · ${data.steps} agent steps`; pendingAgentPrompt = ''; setTimeout(() => location.reload(), 1500);
+    } catch (error) { status.textContent = error.message; form.classList.remove('busy'); }
+  }
+  document.querySelector('#agent-form').addEventListener('submit', event => { event.preventDefault(); const value = prompt.value.trim(); if (value) sendAgentRequest(value); });
+  agentCapWidget.addEventListener('solve', () => { continueAgentRequest.disabled = !agentCapWidget.token; });
+  continueAgentRequest.addEventListener('click', () => { if (!pendingAgentPrompt || !agentCapWidget.token) return; const token = agentCapWidget.token; agentCaptchaDialog.close(); sendAgentRequest(pendingAgentPrompt, token); });
+  agentCaptchaDialog.addEventListener('close', () => { if (agentCaptchaDialog.returnValue !== 'submitted') document.querySelector('#agent-form').classList.remove('busy'); });
   document.querySelector('#reset-original-ui').addEventListener('click', async event => { if (!window.confirm('Restore the original Resona UI? Your account, memories, history, and a recovery snapshot will be kept.')) return; const button = event.currentTarget; button.disabled = true; try { const response = await api('/agent/reset-ui', {method:'POST', body:'{}'}); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'The original UI could not be restored'); button.querySelector('span').textContent = 'Restored'; location.reload(); } catch (error) { button.disabled = false; toast(error.message); } });
   function showFallback(){ document.querySelector('#fallback-alert').classList.add('open'); backdrop.classList.add('open'); }
   document.querySelector('#dismiss-fallback').addEventListener('click', () => { document.querySelector('#fallback-alert').classList.remove('open'); backdrop.classList.remove('open'); });

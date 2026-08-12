@@ -22,6 +22,8 @@ def test_default_agent_prompt_and_model_are_configured_from_bundled_defaults(app
         assert settings["agent_system_prompt"] == default_agent_prompt()
         assert settings["agent_system_prompt"].startswith("You are **Resona AI**")
         assert settings["agent_system_prompt"].endswith("Only then call `finish`.")
+        assert "comfortable to use on a phone" in settings["agent_system_prompt"]
+        assert "at least 16px" in settings["agent_system_prompt"]
         assert settings["agent_prompt_version"] == AGENT_PROMPT_VERSION
         assert settings["closeai_model"] == "gpt-5.6-sol"
         assert settings["agent_model_version"] == AGENT_MODEL_VERSION
@@ -74,6 +76,10 @@ def test_production_deployment_preserves_instance_and_uses_expected_host():
     assert '"PUBLIC_BASE_URL": "https://resona.neuorise.com"' in rendered_env
     assert '"SESSION_COOKIE_SECURE": "1"' in rendered_env
     assert '"LETSENCRYPT_EMAIL"' in rendered_env
+    assert '"RESEND_API_KEY"' in rendered_env
+    assert '"RESEND_FROM_EMAIL"' in rendered_env
+    assert "secrets.RESEND_API_KEY" in workflow
+    assert "secrets.RESEND_FROM_EMAIL" in workflow
 
 
 def test_registration_creates_isolated_default_workspace(app, registered):
@@ -117,6 +123,11 @@ def test_registration_creates_isolated_default_workspace(app, registered):
         assert "data-noise=\"brown\"" in advanced
         assert "data-noise-toggle" in advanced
         assert "data-volume=\"noise\"" in advanced
+        user_css = safe_path("listener", "static/user.css").read_text()
+        assert "mobile-readability-v1" in user_css
+        assert "@media(max-width:600px)" in user_css
+        assert "body{overflow-x:hidden;font-size:16px" in user_css
+        assert "min-height:48px" in user_css
         assert not safe_path("listener", "pages/mixer.html").exists()
         assert safe_path("listener", "memory/notes.md").exists()
         assert safe_path("listener", "memory/plan.md").exists()
@@ -136,7 +147,79 @@ def test_registration_creates_isolated_default_workspace(app, registered):
     assert b'id="reset-original-ui"' in response.data
 
 
-def test_resend_sends_registration_and_password_reset_emails_without_exposing_secrets(app, client, monkeypatch):
+def test_registration_email_verification_and_server_owned_account_page(app, registered):
+    with registered.session_transaction() as session:
+        token = session["testing_verification_token"]
+    with app.app_context():
+        user = get_db().execute("SELECT display_name, email_verified_at FROM users WHERE username = 'listener'").fetchone()
+        assert user["display_name"] == "Listener"
+        assert user["email_verified_at"] is None
+    response = registered.get(f"/auth/verify-email/{token}", follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Private account settings" in response.data
+    with app.app_context():
+        assert get_db().execute("SELECT email_verified_at FROM users WHERE username = 'listener'").fetchone()["email_verified_at"]
+    player = registered.get("/player/")
+    assert b'id="account-button"' in player.data
+    assert b'id="account-dialog"' in player.data
+    assert b"cannot be changed by Resona AI" in player.data
+
+
+def test_account_updates_display_name_password_and_verifies_new_email(app, registered, captcha):
+    response = registered.post("/account/", headers={"Accept": "application/json"}, data={
+        "csrf_token": session_csrf(registered),
+        "cap-token": captcha(),
+        "display_name": "Quiet Listener",
+        "email": "new-listener@example.com",
+        "current_password": "healing-sound-123",
+        "new_password": "a-new-healing-password",
+    })
+    assert response.status_code == 200
+    assert response.get_json()["pending_email"] == "new-listener@example.com"
+    with app.app_context():
+        user = get_db().execute("SELECT display_name, email FROM users WHERE username = 'listener'").fetchone()
+        assert dict(user) == {"display_name": "Quiet Listener", "email": "listener@example.com"}
+    with registered.session_transaction() as session:
+        verification_token = session["testing_verification_token"]
+    registered.get(f"/auth/verify-email/{verification_token}")
+    with app.app_context():
+        user = get_db().execute("SELECT email, password_hash FROM users WHERE username = 'listener'").fetchone()
+        assert user["email"] == "new-listener@example.com"
+        from werkzeug.security import check_password_hash
+        assert check_password_hash(user["password_hash"], "a-new-healing-password")
+
+
+def test_captcha_tokens_are_single_use_for_account_changes(registered, captcha):
+    token = captcha()
+    payload = {
+        "csrf_token": session_csrf(registered), "cap-token": token,
+        "display_name": "Listener", "email": "listener@example.com",
+    }
+    headers = {"Accept": "application/json"}
+    assert registered.post("/account/", headers=headers, data=payload).status_code == 200
+    assert registered.post("/account/", headers=headers, data=payload).status_code == 400
+
+
+def test_every_third_agent_request_within_an_hour_requires_captcha(app, registered, captcha):
+    with app.app_context():
+        user_id = get_db().execute("SELECT id FROM users WHERE username = 'listener'").fetchone()["id"]
+        get_db().executemany(
+            "INSERT INTO agent_runs(user_id, prompt, status) VALUES (?, ?, 'failed')",
+            [(user_id, "first",), (user_id, "second",)],
+        )
+        get_db().commit()
+    payload = {"prompt": "Make it calmer", "credential": API_KEY_PLACEHOLDER}
+    response = registered.post("/agent/modify", headers={"X-CSRF-Token": session_csrf(registered)}, json=payload)
+    assert response.status_code == 403
+    assert response.get_json()["captcha_required"] is True
+    payload["cap_token"] = captcha()
+    response = registered.post("/agent/modify", headers={"X-CSRF-Token": session_csrf(registered)}, json=payload)
+    assert response.status_code == 503
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) AS count FROM agent_runs WHERE user_id = ?", (user_id,)).fetchone()["count"] == 3
+
+
+def test_resend_sends_registration_and_password_reset_emails_without_exposing_secrets(app, client, captcha, monkeypatch):
     captured = []
 
     class Response:
@@ -165,6 +248,8 @@ def test_resend_sends_registration_and_password_reset_emails_without_exposing_se
     assert token.status_code == 200
     response = client.post("/auth/register", data={
         "csrf_token": session_csrf(client),
+        "cap-token": captcha(),
+        "display_name": "Email User",
         "username": "emailuser",
         "email": "emailuser@example.com",
         "password": "healing-sound-123",
@@ -174,7 +259,8 @@ def test_resend_sends_registration_and_password_reset_emails_without_exposing_se
     assert captured[0]["headers"]["Authorization"] == "Bearer re_server_only"
     assert captured[0]["json"]["from"] == "Resona Care <hello@resona.example>"
     assert captured[0]["json"]["to"] == ["emailuser@example.com"]
-    assert captured[0]["json"]["subject"] == "Welcome to Resona"
+    assert captured[0]["json"]["subject"] == "Verify your Resona email"
+    assert "https://resona.test/auth/verify-email/" in captured[0]["json"]["text"]
 
     client.post("/auth/logout", data={"csrf_token": session_csrf(client)})
     client.get("/auth/forgot")
@@ -220,7 +306,7 @@ def test_admin_manages_resend_settings_without_rendering_api_key(app, client):
         assert get_db().execute("SELECT value FROM settings WHERE key = 'resend_api_key'").fetchone()["value"] == "re_admin_secret"
 
 
-def test_resend_delivery_failure_does_not_block_registration(app, client, monkeypatch):
+def test_resend_delivery_failure_blocks_unverifiable_registration(app, client, captcha, monkeypatch):
     def fail_delivery(*_args, **_kwargs):
         raise RuntimeError("delivery unavailable")
 
@@ -234,14 +320,16 @@ def test_resend_delivery_failure_does_not_block_registration(app, client, monkey
     client.get("/auth/register")
     response = client.post("/auth/register", data={
         "csrf_token": session_csrf(client),
+        "cap-token": captcha(),
+        "display_name": "Mail Failure",
         "username": "mailfailure",
         "email": "mailfailure@example.com",
         "password": "healing-sound-123",
     })
-    assert response.status_code == 302
-    assert response.headers["Location"].endswith("/player/")
+    assert response.status_code == 200
+    assert b"Email verification is temporarily unavailable" in response.data
     with app.app_context():
-        assert get_db().execute("SELECT id FROM users WHERE username = 'mailfailure'").fetchone()
+        assert not get_db().execute("SELECT id FROM users WHERE username = 'mailfailure'").fetchone()
 
 
 def test_original_ui_button_resets_only_ui_and_keeps_recovery_data(app, registered):

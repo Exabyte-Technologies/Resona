@@ -4,6 +4,7 @@ from flask import Blueprint, abort, current_app, g, jsonify, request
 
 from .agent_runtime import run_agent, trace_agent_debug
 from .closeai import API_KEY_PLACEHOLDER
+from .captcha import validate_captcha
 from .db import get_db
 from .prompt_safety import review_agent_prompt
 from .security import login_required, require_csrf
@@ -46,6 +47,16 @@ def modify():
     if credential != API_KEY_PLACEHOLDER:
         abort(400, "Invalid Resona credential placeholder")
     db = get_db()
+    recent_runs = db.execute(
+        "SELECT COUNT(*) AS count FROM agent_runs WHERE user_id = ? AND created_at >= datetime('now', '-1 hour')",
+        (g.user["id"],),
+    ).fetchone()["count"]
+    if (recent_runs + 1) % 3 == 0 and not validate_captcha(data):
+        return jsonify({
+            "ok": False,
+            "captcha_required": True,
+            "error": "Complete the CAPTCHA to continue this AI request.",
+        }), 403
     run = db.execute("INSERT INTO agent_runs(user_id, prompt, status) VALUES (?, ?, 'running')", (g.user["id"], prompt))
     db.commit()
     try:

@@ -1,0 +1,15 @@
+<form class="account-form" method="post" action="{{ url_for('account.update_settings') }}" data-account-form>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="account-status {{ 'verified' if g.user.email_verified_at else 'pending' }}">
+    <span>{{ 'Verified email' if g.user.email_verified_at else 'Email verification pending' }}</span>
+    <strong>{{ g.user.email }}</strong>
+    {% if pending_email %}<small>Waiting for verification: {{ pending_email }}</small>{% endif %}
+  </div>
+  <label>Display name<input name="display_name" maxlength="80" autocomplete="name" value="{{ g.user.display_name or g.user.username }}" required></label>
+  <label>Email<input type="email" name="email" autocomplete="email" value="{{ g.user.email }}" required><small>A changed address becomes active only after you verify the emailed link.</small></label>
+  <label>Current password<input type="password" name="current_password" autocomplete="current-password"><small>Required when changing email or password.</small></label>
+  <label>New password<input type="password" name="new_password" minlength="10" autocomplete="new-password"><small>Leave blank to keep your current password.</small></label>
+  <div class="captcha-field"><span>Security check</span><cap-widget data-cap-api-endpoint="{{ url_for('captcha.challenge')|replace('challenge', '') }}" data-cap-hidden-field-name="cap-token" required></cap-widget></div>
+  <p class="account-form-status" data-account-status aria-live="polite"></p>
+  <div class="account-form-actions"><button class="primary" type="submit">Save account changes</button>{% if not g.user.email_verified_at %}<button class="ghost" type="submit" name="action" value="resend_verification">Resend verification email</button>{% endif %}</div>
+</form>

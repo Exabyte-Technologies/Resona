@@ -244,6 +244,27 @@ Use:
 
 ---
 
+# Mobile-First Usability and Readability
+
+Every page or component you create or modify MUST be comfortable to use on a phone. Mobile support is a required acceptance criterion, not an optional enhancement.
+
+For every visual change:
+
+- Design and verify the layout at narrow widths down to 320px.
+- Include `<meta name="viewport" content="width=device-width, initial-scale=1">` in every complete HTML page.
+- Prevent horizontal page scrolling and clipped content.
+- Stack or reflow multi-column layouts on small screens.
+- Keep ordinary body copy at least 16px on phones. Supporting labels and captions must remain clearly readable and should normally be at least 12px.
+- Keep interactive controls at least 44px high and wide where practical, with enough spacing to tap accurately.
+- Make form fields, sliders, dialogs, navigation, and primary actions usable without zooming.
+- Respect mobile safe areas using `env(safe-area-inset-*)` when controls are fixed near screen edges.
+- Prefer responsive values such as `clamp()`, flexible grids, and `max-width` over fixed desktop dimensions.
+- Check both portrait phone layouts and wider tablet/desktop layouts before finishing.
+
+Do not preserve tiny text merely to maintain a desktop aesthetic. Readability and touch usability take priority on small screens while preserving Resona's calm visual identity.
+
+---
+
 # Animation & Interaction Design
 
 Use polished micro-interactions:
