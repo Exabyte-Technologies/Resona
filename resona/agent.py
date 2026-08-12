@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import re
+import secrets
 
 from flask import Blueprint, abort, current_app, g, jsonify, request
 
@@ -12,6 +14,20 @@ from .user_storage import create_snapshot, reset_user_ui, restore_snapshot, safe
 
 
 agent_bp = Blueprint("agent", __name__, url_prefix="/agent")
+REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,80}$")
+
+
+def run_status_payload(run):
+    payload = {
+        "ok": run["status"] == "complete",
+        "request_id": run["client_request_id"],
+        "status": run["status"],
+        "summary": run["summary"] or "",
+        "steps": run["steps"] or 0,
+    }
+    if run["status"] in {"failed", "rejected"}:
+        payload["error"] = run["summary"] or "The agent request did not complete."
+    return payload
 
 
 def agent_context():
@@ -42,11 +58,20 @@ def modify():
     data = request.get_json(silent=True) or {}
     prompt = str(data.get("prompt", "")).strip()
     credential = data.get("credential")
+    request_id = str(data.get("request_id", "")).strip() or secrets.token_urlsafe(24)
     if not prompt or len(prompt) > 4000:
         abort(400, "Enter a prompt between 1 and 4,000 characters")
     if credential != API_KEY_PLACEHOLDER:
         abort(400, "Invalid Resona credential placeholder")
+    if not REQUEST_ID_RE.fullmatch(request_id):
+        abort(400, "Invalid agent request identifier")
     db = get_db()
+    existing = db.execute(
+        "SELECT * FROM agent_runs WHERE user_id = ? AND client_request_id = ?",
+        (g.user["id"], request_id),
+    ).fetchone()
+    if existing:
+        return jsonify(run_status_payload(existing)), (200 if existing["status"] != "running" else 202)
     recent_runs = db.execute(
         "SELECT COUNT(*) AS count FROM agent_runs WHERE user_id = ? AND created_at >= datetime('now', '-1 hour')",
         (g.user["id"],),
@@ -57,7 +82,10 @@ def modify():
             "captcha_required": True,
             "error": "Complete the CAPTCHA to continue this AI request.",
         }), 403
-    run = db.execute("INSERT INTO agent_runs(user_id, prompt, status) VALUES (?, ?, 'running')", (g.user["id"], prompt))
+    run = db.execute(
+        "INSERT INTO agent_runs(user_id, client_request_id, prompt, status) VALUES (?, ?, ?, 'running')",
+        (g.user["id"], request_id, prompt),
+    )
     db.commit()
     try:
         safety = review_agent_prompt(prompt, credential)
@@ -95,11 +123,13 @@ def modify():
             "memory/plan.md",
             existing_plan + f"\n## {stamp}\n{summary}\nSteps: {result['steps']}\nTools: {tool_names}\nSnapshot: `{snapshot}`\n",
         )
-        db.execute("UPDATE agent_runs SET summary = ?, status = 'complete' WHERE id = ?", (summary[:500], run.lastrowid))
+        db.execute("UPDATE agent_runs SET summary = ?, steps = ?, status = 'complete' WHERE id = ?", (summary[:500], result["steps"], run.lastrowid))
         db.commit()
         trace_agent_debug("request_completed", run_id=run.lastrowid, username=g.user["username"], snapshot=snapshot, summary=summary, steps=result["steps"], tools=result["tools"])
         return jsonify({
             "ok": True,
+            "request_id": request_id,
+            "status": "complete",
             "summary": summary,
             "snapshot": snapshot,
             "steps": result["steps"],
@@ -111,6 +141,20 @@ def modify():
         trace_agent_debug("request_failed", run_id=run.lastrowid, username=g.user["username"], snapshot=snapshot, error=f"{type(exc).__name__}: {exc}")
         current_app.logger.exception("Autonomous agent run failed")
         return jsonify({"ok": False, "error": str(exc), "snapshot": snapshot}), 422
+
+
+@agent_bp.get("/status/<request_id>")
+@login_required
+def status(request_id):
+    if not REQUEST_ID_RE.fullmatch(request_id):
+        abort(404)
+    run = get_db().execute(
+        "SELECT * FROM agent_runs WHERE user_id = ? AND client_request_id = ?",
+        (g.user["id"], request_id),
+    ).fetchone()
+    if not run:
+        abort(404)
+    return jsonify(run_status_payload(run))
 
 
 @agent_bp.post("/rollback/<snapshot_id>")

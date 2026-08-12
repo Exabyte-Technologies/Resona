@@ -36,6 +36,7 @@ def close_db(_error=None):
 def init_db():
     db = get_db()
     existing_user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    existing_agent_columns = {row["name"] for row in db.execute("PRAGMA table_info(agent_runs)").fetchall()}
     schema = Path(current_app.root_path) / "schema.sql"
     db.executescript(schema.read_text(encoding="utf-8"))
     if existing_user_columns and "display_name" not in existing_user_columns:
@@ -44,6 +45,14 @@ def init_db():
         db.execute("ALTER TABLE users ADD COLUMN email_verified_at TEXT")
         db.execute("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP")
     db.execute("UPDATE users SET display_name = username WHERE display_name IS NULL OR trim(display_name) = ''")
+    if existing_agent_columns and "client_request_id" not in existing_agent_columns:
+        db.execute("ALTER TABLE agent_runs ADD COLUMN client_request_id TEXT")
+    if existing_agent_columns and "steps" not in existing_agent_columns:
+        db.execute("ALTER TABLE agent_runs ADD COLUMN steps INTEGER")
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS agent_runs_user_request_id "
+        "ON agent_runs(user_id, client_request_id) WHERE client_request_id IS NOT NULL"
+    )
     prompt_version = db.execute("SELECT value FROM settings WHERE key = 'agent_prompt_version'").fetchone()["value"]
     if prompt_version != AGENT_PROMPT_VERSION:
         db.execute("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'agent_system_prompt'", (default_agent_prompt(),))

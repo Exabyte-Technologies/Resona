@@ -159,23 +159,62 @@
   document.querySelectorAll('#prompt-examples button').forEach(button => button.addEventListener('click', () => { prompt.value = button.textContent.replace(/^“|”$/g,''); prompt.focus(); }));
   const recognition = window.SpeechRecognition || window.webkitSpeechRecognition; const voice = document.querySelector('#voice-button');
   if (recognition) { const listener = new recognition(); listener.interimResults = true; listener.continuous = false; listener.onstart = () => { voice.classList.add('listening'); document.querySelector('#agent-orb').classList.add('listening'); status.textContent = 'Listening…'; }; listener.onresult = e => { prompt.value = Array.from(e.results).map(r => r[0].transcript).join(''); }; listener.onend = () => { voice.classList.remove('listening'); document.querySelector('#agent-orb').classList.remove('listening'); status.textContent = ''; }; voice.addEventListener('click', () => listener.start()); } else voice.hidden = true;
-  let pendingAgentPrompt = '', agentCaptchaToken = '';
-  async function sendAgentRequest(value, capToken = null) {
+  const ACTIVE_AGENT_REQUEST = 'resonaActiveAgentRequest';
+  const newRequestId = () => window.crypto?.randomUUID?.() || `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
+  const rememberAgentRequest = (requestId, value) => sessionStorage.setItem(ACTIVE_AGENT_REQUEST, JSON.stringify({requestId,value}));
+  const forgetAgentRequest = () => sessionStorage.removeItem(ACTIVE_AGENT_REQUEST);
+  const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+  let pendingAgentPrompt = '', pendingAgentRequestId = '', agentCaptchaToken = '';
+  function completeAgentRequest(data) {
+    forgetAgentRequest(); pendingAgentPrompt = ''; pendingAgentRequestId = '';
+    status.textContent = `${data.summary} · ${data.steps || 0} agent steps`;
+    setTimeout(() => location.reload(), 900);
+  }
+  async function recoverAgentRequest(requestId, value) {
     const form = document.querySelector('#agent-form');
-    pendingAgentPrompt = value; status.innerHTML = '<span class="thinking"></span> Inspecting files and working until your request is complete…'; form.classList.add('busy');
+    rememberAgentRequest(requestId, value); form.classList.add('busy');
+    let missingChecks = 0;
+    for (let attempt = 0; attempt < 1800; attempt += 1) {
+      try {
+        const response = await fetch(`/agent/status/${encodeURIComponent(requestId)}`, {cache:'no-store'});
+        if (response.status === 404) {
+          missingChecks += 1;
+          if (missingChecks >= 5) { forgetAgentRequest(); status.textContent = 'The connection recovered, but the request did not reach Resona. Please send it again.'; form.classList.remove('busy'); return; }
+        } else {
+          missingChecks = 0;
+          const data = await response.json();
+          if (data.status === 'complete') { completeAgentRequest(data); return; }
+          if (data.status === 'failed' || data.status === 'rejected') { forgetAgentRequest(); status.textContent = data.error || 'The agent request did not complete.'; form.classList.remove('busy'); return; }
+          status.innerHTML = '<span class="thinking"></span> Connection restored. Resona is still applying your changes…';
+        }
+      } catch (_error) {
+        status.innerHTML = '<span class="thinking"></span> Connection interrupted. Waiting for Resona to finish safely…';
+      }
+      await wait(2000);
+    }
+    status.textContent = 'The request is still running. Refreshing later will reconnect to its status.'; form.classList.remove('busy');
+  }
+  async function sendAgentRequest(value, capToken = null, requestId = pendingAgentRequestId || newRequestId()) {
+    const form = document.querySelector('#agent-form');
+    pendingAgentPrompt = value; pendingAgentRequestId = requestId; rememberAgentRequest(requestId, value); status.innerHTML = '<span class="thinking"></span> Inspecting files and working until your request is complete…'; form.classList.add('busy');
     try {
-      const response = await api('/agent/modify', {method:'POST', body:JSON.stringify({prompt:value,credential:PROVIDER_CREDENTIAL_PLACEHOLDER,cap_token:capToken})});
+      const response = await api('/agent/modify', {method:'POST', body:JSON.stringify({prompt:value,credential:PROVIDER_CREDENTIAL_PLACEHOLDER,cap_token:capToken,request_id:requestId})});
       const data = await response.json();
-      if (data.captcha_required) { status.textContent = 'Complete the security check to continue.'; agentCaptchaToken = ''; agentCapWidget.reset(); continueAgentRequest.disabled = true; agentCaptchaDialog.showModal(); return; }
+      if (data.captcha_required) { forgetAgentRequest(); status.textContent = 'Complete the security check to continue.'; agentCaptchaToken = ''; agentCapWidget.reset(); continueAgentRequest.disabled = true; agentCaptchaDialog.showModal(); return; }
+      if (response.status === 202 || data.status === 'running') { recoverAgentRequest(requestId, value); return; }
       if (!response.ok) throw new Error(data.error || 'Modification failed');
-      status.textContent = `${data.summary} · ${data.steps} agent steps`; pendingAgentPrompt = ''; setTimeout(() => location.reload(), 1500);
-    } catch (error) { status.textContent = error.message; form.classList.remove('busy'); }
+      completeAgentRequest(data);
+    } catch (error) {
+      if (error instanceof TypeError || /fetch|network|load failed/i.test(error.message)) { recoverAgentRequest(requestId, value); return; }
+      forgetAgentRequest(); status.textContent = error.message; form.classList.remove('busy');
+    }
   }
   document.querySelector('#agent-form').addEventListener('submit', event => { event.preventDefault(); const value = prompt.value.trim(); if (value) sendAgentRequest(value); });
   agentCapWidget.addEventListener('solve', event => { agentCaptchaToken = event.detail?.token || ''; continueAgentRequest.disabled = !agentCaptchaToken; });
   agentCapWidget.addEventListener('reset', () => { agentCaptchaToken = ''; continueAgentRequest.disabled = true; });
   continueAgentRequest.addEventListener('click', () => { if (!pendingAgentPrompt || !agentCaptchaToken) return; const token = agentCaptchaToken; agentCaptchaToken = ''; agentCaptchaDialog.close(); sendAgentRequest(pendingAgentPrompt, token); });
   agentCaptchaDialog.addEventListener('close', () => { document.querySelector('#agent-form').classList.remove('busy'); });
+  try { const active = JSON.parse(sessionStorage.getItem(ACTIVE_AGENT_REQUEST) || 'null'); if (active?.requestId && active?.value) recoverAgentRequest(active.requestId, active.value); } catch (_error) { forgetAgentRequest(); }
   document.querySelector('#reset-original-ui').addEventListener('click', async event => { if (!window.confirm('Restore the original Resona UI? Your account, memories, history, and a recovery snapshot will be kept.')) return; const button = event.currentTarget; button.disabled = true; try { const response = await api('/agent/reset-ui', {method:'POST', body:'{}'}); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'The original UI could not be restored'); button.querySelector('span').textContent = 'Restored'; location.reload(); } catch (error) { button.disabled = false; toast(error.message); } });
   function showFallback(){ document.querySelector('#fallback-alert').classList.add('open'); backdrop.classList.add('open'); }
   document.querySelector('#dismiss-fallback').addEventListener('click', () => { document.querySelector('#fallback-alert').classList.remove('open'); backdrop.classList.remove('open'); });

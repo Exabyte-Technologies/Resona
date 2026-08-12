@@ -815,6 +815,46 @@ def test_agent_fails_safely_without_external_key(app, registered):
         assert run["status"] == "failed"
 
 
+def test_agent_request_ids_expose_owned_status_and_prevent_duplicate_runs(app, registered):
+    request_id = "stable_request_id_123456"
+    with app.app_context():
+        user_id = get_db().execute("SELECT id FROM users WHERE username = 'listener'").fetchone()["id"]
+        get_db().execute(
+            "INSERT INTO agent_runs(user_id, client_request_id, prompt, summary, steps, status) VALUES (?, ?, ?, ?, ?, 'complete')",
+            (user_id, request_id, "Make it calmer", "Calmer interface applied.", 7),
+        )
+        get_db().commit()
+    status_response = registered.get(f"/agent/status/{request_id}")
+    assert status_response.status_code == 200
+    assert status_response.get_json() == {
+        "ok": True,
+        "request_id": request_id,
+        "status": "complete",
+        "summary": "Calmer interface applied.",
+        "steps": 7,
+    }
+    duplicate = registered.post(
+        "/agent/modify",
+        headers={"X-CSRF-Token": session_csrf(registered)},
+        json={"prompt": "Make it calmer", "credential": API_KEY_PLACEHOLDER, "request_id": request_id},
+    )
+    assert duplicate.status_code == 200
+    assert duplicate.get_json()["summary"] == "Calmer interface applied."
+    with app.app_context():
+        count = get_db().execute("SELECT COUNT(*) AS count FROM agent_runs WHERE client_request_id = ?", (request_id,)).fetchone()["count"]
+        assert count == 1
+
+
+def test_player_recovers_interrupted_agent_fetches_by_polling_status():
+    from pathlib import Path
+
+    player_js = (Path(__file__).parents[1] / "resona/static/js/player.js").read_text()
+    assert "request_id:requestId" in player_js
+    assert "/agent/status/${encodeURIComponent(requestId)}" in player_js
+    assert "sessionStorage.setItem(ACTIVE_AGENT_REQUEST" in player_js
+    assert "Connection interrupted. Waiting for Resona to finish safely" in player_js
+
+
 def test_agent_rejects_locally_detected_harm_before_snapshot_or_model(app, registered, monkeypatch):
     monkeypatch.setattr("resona.prompt_safety.safety_completion", lambda *_args: (_ for _ in ()).throw(AssertionError("provider should not be called")))
     response = registered.post(
