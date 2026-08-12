@@ -390,8 +390,12 @@ def test_binaural_pair_is_symmetric_around_drone_frequency(registered):
 def test_chord_progression_retunes_ambient_pads_in_browser(registered):
     audio = registered.get("/static/js/audio.js").get_data(as_text=True)
     chord_logic = audio.split("    chordFrequencies(", 1)[1].split("    startAmbient()", 1)[0]
+    manual_frequency = audio.split("    setDroneFrequency(", 1)[1].split("    chordFrequencies(", 1)[0]
     assert "this.config.ambient.droneFrequency * Math.pow(2" in chord_logic
     assert "this.ambientOscillators.pads.forEach" in chord_logic
+    assert "frequency.cancelScheduledValues(now)" in chord_logic
+    assert "frequency.setValueAtTime(frequencies[index], now)" in chord_logic
+    assert "frequency.setTargetAtTime(values[index], now, .35)" in manual_frequency
     assert "setInterval" in chord_logic
     assert "setChordProgression(chords, duration)" in chord_logic
 
@@ -563,6 +567,51 @@ def test_environment_admin_is_created_and_can_log_in(tmp_path):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/admin/")
     assert client.get("/admin/").status_code == 200
+
+
+def test_admin_can_create_regular_user_with_private_workspace(app, client):
+    from resona.user_storage import safe_path, user_root
+    from werkzeug.security import check_password_hash, generate_password_hash
+
+    with app.app_context():
+        db = get_db()
+        admin_id = db.execute(
+            "INSERT INTO users(username,email,password_hash,is_admin) VALUES (?,?,?,1)",
+            ("provisioner", "provisioner@example.com", generate_password_hash("long-admin-password", method="pbkdf2:sha256:600000")),
+        ).lastrowid
+        db.commit()
+    with client.session_transaction() as session:
+        session["user_id"] = admin_id
+        session["csrf_token"] = "create-user-csrf"
+
+    response = client.post("/admin/users", data={
+        "csrf_token": "create-user-csrf",
+        "username": "new_listener",
+        "email": "new-listener@example.com",
+        "password": "temporary-password",
+    })
+    assert response.status_code == 302
+    with app.app_context():
+        user = get_db().execute("SELECT * FROM users WHERE username = 'new_listener'").fetchone()
+        assert user and user["is_admin"] == 0
+        assert check_password_hash(user["password_hash"], "temporary-password")
+        assert user_root("new_listener").is_dir()
+        assert safe_path("new_listener", "nav.json").is_file()
+        assert safe_path("new_listener", "static/chord-model/weights.bin").is_file()
+
+    dashboard = client.get("/admin/")
+    assert b"new_listener" in dashboard.data
+    assert b"Create a user" in dashboard.data
+
+    duplicate = client.post("/admin/users", data={
+        "csrf_token": "create-user-csrf",
+        "username": "another_listener",
+        "email": "new-listener@example.com",
+        "password": "temporary-password",
+    }, follow_redirects=True)
+    assert b"already registered" in duplicate.data
+    with app.app_context():
+        assert not user_root("another_listener").exists()
 
 
 def test_admin_can_edit_user_and_move_private_workspace(app, client):

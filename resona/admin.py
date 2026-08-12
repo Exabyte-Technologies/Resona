@@ -7,7 +7,7 @@ from .closeai import get_provider_settings, validate_base_url
 from .db import get_db
 from .resend import get_resend_settings
 from .security import USERNAME_RE, admin_required, require_csrf
-from .user_storage import delete_user_storage, initialize_user_storage, rename_user_storage, usage_bytes
+from .user_storage import delete_user_storage, initialize_user_storage, rename_user_storage, usage_bytes, user_root
 
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -62,6 +62,54 @@ def dashboard():
         "failures": db.execute("SELECT COUNT(*) AS count FROM agent_runs WHERE status = 'failed'").fetchone()["count"],
     }
     return render_template("admin/dashboard.html", users=users, skills=skills, system_prompt=prompt, stats=stats, provider=provider, resend=resend)
+
+
+@admin_bp.post("/users")
+@admin_required
+def create_user():
+    require_csrf()
+    username = request.form.get("username", "").strip().lower()
+    email = request.form.get("email", "").strip().lower()
+    password = request.form.get("password", "")
+    if not USERNAME_RE.fullmatch(username):
+        flash("Use 3–32 lowercase letters, numbers, underscores, or hyphens.", "error")
+        return redirect(url_for("admin.dashboard"))
+    if "@" not in email or len(email) > 254:
+        flash("Enter a valid email address.", "error")
+        return redirect(url_for("admin.dashboard"))
+    if len(password) < 10:
+        flash("The temporary password must contain at least 10 characters.", "error")
+        return redirect(url_for("admin.dashboard"))
+    if user_root(username).exists():
+        flash("A private workspace with that username already exists.", "error")
+        return redirect(url_for("admin.dashboard"))
+
+    db = get_db()
+    workspace_created = False
+    try:
+        cursor = db.execute(
+            "INSERT INTO users(username, email, password_hash, is_admin) VALUES (?, ?, ?, 0)",
+            (username, email, generate_password_hash(password, method="pbkdf2:sha256:600000")),
+        )
+        initialize_user_storage(username)
+        workspace_created = True
+        db.commit()
+    except sqlite3.IntegrityError:
+        db.rollback()
+        if workspace_created:
+            delete_user_storage(username)
+        flash("That username or email is already registered.", "error")
+        return redirect(url_for("admin.dashboard"))
+    except (OSError, ValueError):
+        db.rollback()
+        if user_root(username).exists():
+            delete_user_storage(username)
+        current_app.logger.exception("Could not initialize the private workspace for new user %s", username)
+        flash("The account could not be created because its private workspace could not be initialized.", "error")
+        return redirect(url_for("admin.dashboard"))
+
+    flash(f"User {username} was created and can sign in with the temporary password.", "success")
+    return redirect(url_for("admin.dashboard", user=cursor.lastrowid))
 
 
 @admin_bp.post("/users/<int:user_id>/edit")

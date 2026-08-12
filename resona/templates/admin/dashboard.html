@@ -28,6 +28,18 @@
         <button class="primary">Save provider settings</button>
       </form>
     </section>
+    <section class="admin-card">
+      <p class="kicker">Account provisioning</p><h2>Create a user</h2>
+      <p class="muted">Create a regular listener account and initialize its private 1 GB workspace.</p>
+      <form method="post" action="{{ url_for('admin.create_user') }}" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>Username<input name="username" required pattern="[a-z0-9][a-z0-9_-]{2,31}" autocomplete="off"></label>
+        <label>Email<input type="email" name="email" required autocomplete="off"></label>
+        <label>Temporary password<input type="password" name="password" minlength="10" required autocomplete="new-password"><small>The user can change this through password recovery.</small></label>
+        <button class="primary" type="submit">Create user</button>
+      </form>
+    </section>
+    <section class="admin-card"><p class="kicker">Delegation</p><h2>Add an admin</h2><form method="post" action="{{ url_for('admin.add_admin') }}" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Username<input name="username" required></label><label>Email<input type="email" name="email" required></label><label>Temporary password<input type="password" name="password" minlength="10" required></label><button class="primary">Create admin</button></form></section>
     <section class="admin-card wide">
       <p class="kicker">Transactional email</p><h2>Resend</h2>
       <p class="muted">Send welcome messages when accounts are created and secure, 30-minute password reset links. Resona keeps the API key on the server.</p>
@@ -49,7 +61,6 @@
     </section>
     <section class="admin-card"><p class="kicker">Prompt engineering</p><h2>Base agent prompt</h2><form method="post" action="{{ url_for('admin.update_prompt') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><textarea name="system_prompt" rows="10">{{ system_prompt }}</textarea><button class="primary">Save prompt</button></form></section>
     <section class="admin-card"><p class="kicker">Capabilities</p><h2>Inject a skill</h2><form method="post" action="{{ url_for('admin.add_skill') }}" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Name<input name="name" required></label><label>Description<textarea name="description" rows="3" required></textarea></label><label>Endpoint<input name="endpoint" placeholder="Optional API endpoint"></label><label>Scope<select name="scope"><option value="global">All users</option><option value="user">One user</option></select></label><label>User<select name="user_id"><option value="">Select if user-scoped</option>{% for user in users %}<option value="{{ user.id }}">{{ user.username }}</option>{% endfor %}</select></label><button class="primary">Register skill</button></form></section>
-    <section class="admin-card"><p class="kicker">Delegation</p><h2>Add an admin</h2><form method="post" action="{{ url_for('admin.add_admin') }}" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Username<input name="username" required></label><label>Email<input type="email" name="email" required></label><label>Temporary password<input type="password" name="password" minlength="10" required></label><button class="primary">Create admin</button></form></section>
     <section class="admin-card"><p class="kicker">Skill registry</p><h2>{{ skills|length }} installed</h2><div class="skill-list">{% for skill in skills %}<article><strong>{{ skill.name }}</strong><span>{{ skill.description }}</span><small>{{ skill.scope }}{% if skill.username %} · {{ skill.username }}{% endif %}</small></article>{% else %}<p class="muted">No custom skills yet.</p>{% endfor %}</div></section>
   </div>
 </main>

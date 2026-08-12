@@ -93,7 +93,7 @@
       const chords = this.config.ambient.chordProgression;
       if (!this.ambientPlaying || !this.ambientOscillators || !chords.length) return;
       const frequencies = this.chordFrequencies(chords[this.chordProgressionIndex]), now = this.context.currentTime;
-      this.ambientOscillators.pads.forEach((oscillator, index) => oscillator.frequency.setTargetAtTime(frequencies[index], now, .4));
+      this.ambientOscillators.pads.forEach((oscillator, index) => { oscillator.frequency.cancelScheduledValues(now); oscillator.frequency.setValueAtTime(frequencies[index], now); });
       this.notifyState();
     }
     scheduleProgression() {
