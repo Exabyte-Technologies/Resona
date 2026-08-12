@@ -147,19 +147,46 @@ def test_registration_creates_isolated_default_workspace(app, registered):
     assert b'id="reset-original-ui"' in response.data
 
 
-def test_registration_email_verification_and_server_owned_account_page(app, registered):
-    with registered.session_transaction() as session:
+def test_registration_requires_email_verification_before_login_and_exposes_server_owned_account_page(app, client, captcha):
+    client.get("/auth/register")
+    response = client.post("/auth/register", data={
+        "csrf_token": session_csrf(client),
+        "cap-token": captcha(),
+        "display_name": "Unverified Listener",
+        "username": "unverified",
+        "email": "unverified@example.com",
+        "password": "healing-sound-123",
+    })
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/auth/login")
+    assert client.get("/player/").headers["Location"].startswith("/auth/login")
+    with client.session_transaction() as session:
         token = session["testing_verification_token"]
     with app.app_context():
-        user = get_db().execute("SELECT display_name, email_verified_at FROM users WHERE username = 'listener'").fetchone()
-        assert user["display_name"] == "Listener"
+        user = get_db().execute("SELECT display_name, email_verified_at FROM users WHERE username = 'unverified'").fetchone()
+        assert user["display_name"] == "Unverified Listener"
         assert user["email_verified_at"] is None
-    response = registered.get(f"/auth/verify-email/{token}", follow_redirects=True)
-    assert response.status_code == 200
-    assert b"Private account settings" in response.data
+
+    client.get("/auth/login")
+    denied = client.post("/auth/login", data={
+        "csrf_token": session_csrf(client), "cap-token": captcha(),
+        "identity": "unverified", "password": "healing-sound-123",
+    })
+    assert denied.status_code == 403
+    assert b"Verify your email before signing in" in denied.data
+
+    response = client.get(f"/auth/verify-email/{token}")
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/auth/login")
     with app.app_context():
-        assert get_db().execute("SELECT email_verified_at FROM users WHERE username = 'listener'").fetchone()["email_verified_at"]
-    player = registered.get("/player/")
+        assert get_db().execute("SELECT email_verified_at FROM users WHERE username = 'unverified'").fetchone()["email_verified_at"]
+    client.get("/auth/login")
+    allowed = client.post("/auth/login", data={
+        "csrf_token": session_csrf(client), "cap-token": captcha(),
+        "identity": "unverified", "password": "healing-sound-123",
+    })
+    assert allowed.status_code == 302
+    player = client.get("/player/")
     assert b'id="account-button"' in player.data
     assert b'id="account-dialog"' in player.data
     assert b"cannot be changed by Resona AI" in player.data
@@ -217,6 +244,15 @@ def test_every_third_agent_request_within_an_hour_requires_captcha(app, register
     assert response.status_code == 503
     with app.app_context():
         assert get_db().execute("SELECT COUNT(*) AS count FROM agent_runs WHERE user_id = ?", (user_id,)).fetchone()["count"] == 3
+
+
+def test_agent_captcha_dialog_enables_continue_from_solve_event_token():
+    from pathlib import Path
+
+    player_js = (Path(__file__).parents[1] / "resona/static/js/player.js").read_text()
+    assert "event.detail?.token" in player_js
+    assert "continueAgentRequest.disabled = !agentCaptchaToken" in player_js
+    assert "sendAgentRequest(pendingAgentPrompt, token)" in player_js
 
 
 def test_resend_sends_registration_and_password_reset_emails_without_exposing_secrets(app, client, captcha, monkeypatch):

@@ -45,12 +45,11 @@ def register():
                 db.commit()
                 initialize_user_storage(username)
                 session.clear()
-                session["user_id"] = cursor.lastrowid
                 session["csrf_token"] = secrets.token_urlsafe(32)
                 if current_app.testing and not resend_is_configured():
                     session["testing_verification_token"] = verification_token
-                flash("Account created. Check your inbox to verify your email.", "success")
-                return redirect(url_for("player.index"))
+                flash("Account created. Verify your email before signing in.", "success")
+                return redirect(url_for("auth.login"))
             except Exception as exc:
                 db.rollback()
                 if "UNIQUE constraint" in str(exc):
@@ -73,6 +72,9 @@ def login():
             "SELECT * FROM users WHERE username = ? OR email = ?", (identity, identity)
         ).fetchone()
         if user and check_password_hash(user["password_hash"], request.form.get("password", "")):
+            if not user["email_verified_at"]:
+                flash("Verify your email before signing in. Check your inbox for the verification link.", "error")
+                return render_template("auth/login.html"), 403
             session.clear()
             session["user_id"] = user["id"]
             session["csrf_token"] = secrets.token_urlsafe(32)

@@ -60,4 +60,16 @@ def registered(client, captcha):
         "password": "healing-sound-123",
     })
     assert response.status_code == 302
+    with client.session_transaction() as session:
+        verification_token = session["testing_verification_token"]
+    assert client.get(f"/auth/verify-email/{verification_token}").status_code == 302
+    login_csrf = csrf(client, "/auth/login")
+    response = client.post("/auth/login", data={
+        "csrf_token": login_csrf,
+        "cap-token": captcha(),
+        "identity": "listener",
+        "password": "healing-sound-123",
+    })
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/player/")
     return client
