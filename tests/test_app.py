@@ -855,7 +855,6 @@ def test_prompt_safety_classifies_clear_resona_work_locally_when_provider_is_una
 
 
 def test_safety_completion_retries_without_json_mode_for_compatible_proxies(app, monkeypatch):
-    import requests
     from resona.closeai import safety_completion
 
     payloads = []
@@ -864,10 +863,7 @@ def test_safety_completion_retries_without_json_mode_for_compatible_proxies(app,
         def __init__(self, status_code, content=None):
             self.status_code = status_code
             self.content = content
-
-        def raise_for_status(self):
-            if self.status_code >= 400:
-                raise requests.HTTPError("unsupported response_format")
+            self.headers = {}
 
         def json(self):
             return {"choices": [{"message": {"content": self.content}}]}
@@ -936,6 +932,9 @@ def test_server_proxy_resolves_admin_key_without_exposing_it(app, monkeypatch):
     captured = {}
 
     class Response:
+        status_code = 200
+        headers = {}
+
         def raise_for_status(self):
             return None
 
@@ -958,6 +957,46 @@ def test_server_proxy_resolves_admin_key_without_exposing_it(app, monkeypatch):
     assert captured["headers"]["Authorization"] == "Bearer sk-server-only"
     assert captured["json"]["model"] == "gpt-test"
     assert API_KEY_PLACEHOLDER not in json.dumps(captured)
+
+
+def test_managed_deployment_environment_provider_overrides_stale_database_settings(app):
+    from resona.closeai import get_provider_settings
+
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE settings SET value = 'stale-db-key' WHERE key = 'closeai_api_key'")
+        db.execute("UPDATE settings SET value = 'stale-db-model' WHERE key = 'closeai_model'")
+        db.commit()
+        app.config.update(
+            CLOSEAI_API_KEY="current-environment-key",
+            CLOSEAI_MODEL="gpt-5.6-sol",
+            CLOSEAI_PREFER_ENV=True,
+        )
+        provider = get_provider_settings()
+    assert provider["api_key"] == "current-environment-key"
+    assert provider["model"] == "gpt-5.6-sol"
+    assert provider["key_source"] == "environment"
+
+
+def test_provider_403_is_reported_without_leaking_response_content():
+    from resona.closeai import ProviderHTTPError, raise_for_provider_status
+
+    class Response:
+        status_code = 403
+        headers = {"x-request-id": "request-safe-id"}
+
+        def json(self):
+            return {"error": {"code": "model_forbidden", "message": "secret upstream detail"}}
+
+    try:
+        raise_for_provider_status(Response())
+        assert False, "403 must raise a provider error"
+    except ProviderHTTPError as exc:
+        message = str(exc)
+        assert "API key or model" in message
+        assert "model_forbidden" in message
+        assert "request-safe-id" in message
+        assert "secret upstream detail" not in message
 
 
 def test_generated_content_cannot_escape_shell(app):

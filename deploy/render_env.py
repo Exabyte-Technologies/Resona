@@ -36,6 +36,7 @@ def main():
         "CLOSEAI_BASE_URL": "https://api.openai-proxy.org",
         "CLOSEAI_API_KEY": os.environ["CLOSEAI_API_KEY"],
         "CLOSEAI_MODEL": "gpt-5.6-sol",
+        "CLOSEAI_PREFER_ENV": "1",
         "RESEND_API_KEY": os.environ["RESEND_API_KEY"],
         "RESEND_FROM_EMAIL": os.environ["RESEND_FROM_EMAIL"],
         "RESEND_FROM_NAME": "Resona",

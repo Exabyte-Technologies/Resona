@@ -21,6 +21,7 @@ def create_app(test_config=None):
         CLOSEAI_BASE_URL=os.getenv("CLOSEAI_BASE_URL", "https://api.openai-proxy.org"),
         CLOSEAI_API_KEY=os.getenv("CLOSEAI_API_KEY", ""),
         CLOSEAI_MODEL=os.getenv("CLOSEAI_MODEL", "gpt-5.6-sol"),
+        CLOSEAI_PREFER_ENV=os.getenv("CLOSEAI_PREFER_ENV", "0") == "1",
         RESEND_API_KEY=os.getenv("RESEND_API_KEY", ""),
         RESEND_FROM_EMAIL=os.getenv("RESEND_FROM_EMAIL", "").strip().lower(),
         RESEND_FROM_NAME=os.getenv("RESEND_FROM_NAME", "Resona").strip(),

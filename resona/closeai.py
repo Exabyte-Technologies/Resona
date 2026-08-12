@@ -10,6 +10,42 @@ API_KEY_PLACEHOLDER = "{{RESONA_SERVER_API_KEY}}"
 ALLOWED_PROVIDER_HOSTS = {"api.openai-proxy.org", "closeai-asia.com", "api.closeai-asia.com"}
 
 
+class ProviderHTTPError(RuntimeError):
+    def __init__(self, status_code, code="", request_id=""):
+        self.status_code = int(status_code)
+        self.code = str(code or "")[:80]
+        self.request_id = str(request_id or "")[:120]
+        if self.status_code == 401:
+            message = "The AI provider rejected the configured API credentials (HTTP 401). Check CLOSEAI_API_KEY."
+        elif self.status_code == 403:
+            message = "The AI provider forbids this API key or model (HTTP 403). Check CLOSEAI_API_KEY and confirm the key can access the configured model."
+        elif self.status_code == 429:
+            message = "The AI provider rate or quota limit was reached (HTTP 429). Check provider quota and retry shortly."
+        else:
+            message = f"The AI provider request failed (HTTP {self.status_code})."
+        details = []
+        if self.code:
+            details.append(f"code {self.code}")
+        if self.request_id:
+            details.append(f"request {self.request_id}")
+        if details:
+            message += " [" + ", ".join(details) + "]"
+        super().__init__(message)
+
+
+def raise_for_provider_status(response):
+    if response.status_code < 400:
+        return
+    code = ""
+    try:
+        error = response.json().get("error", {})
+        if isinstance(error, dict):
+            code = error.get("code", "")
+    except (ValueError, AttributeError):
+        pass
+    raise ProviderHTTPError(response.status_code, code, response.headers.get("x-request-id", ""))
+
+
 def _setting(key):
     row = get_db().execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
     return row["value"].strip() if row else ""
@@ -24,13 +60,15 @@ def validate_base_url(value):
 
 def get_provider_settings():
     database_key = _setting("closeai_api_key")
-    base_url = _setting("closeai_base_url") or current_app.config["CLOSEAI_BASE_URL"]
-    model = _setting("closeai_model") or current_app.config["CLOSEAI_MODEL"]
+    environment_key = current_app.config.get("CLOSEAI_API_KEY", "").strip()
+    prefer_environment = current_app.config.get("CLOSEAI_PREFER_ENV", False) and environment_key
+    base_url = current_app.config["CLOSEAI_BASE_URL"] if prefer_environment else (_setting("closeai_base_url") or current_app.config["CLOSEAI_BASE_URL"])
+    model = current_app.config["CLOSEAI_MODEL"] if prefer_environment else (_setting("closeai_model") or current_app.config["CLOSEAI_MODEL"])
     return {
-        "api_key": database_key or current_app.config.get("CLOSEAI_API_KEY", ""),
+        "api_key": environment_key if prefer_environment else (database_key or environment_key),
         "base_url": validate_base_url(base_url),
         "model": model,
-        "key_source": "admin" if database_key else ("environment" if current_app.config.get("CLOSEAI_API_KEY") else "none"),
+        "key_source": "environment" if prefer_environment else ("admin" if database_key else ("environment" if environment_key else "none")),
     }
 
 
@@ -50,7 +88,7 @@ def chat(messages, credential_placeholder):
         },
         timeout=90,
     )
-    response.raise_for_status()
+    raise_for_provider_status(response)
     return response.json()["choices"][0]["message"]["content"]
 
 
@@ -71,7 +109,7 @@ def agent_completion(messages, tools, credential_placeholder):
         },
         timeout=90,
     )
-    response.raise_for_status()
+    raise_for_provider_status(response)
     message = response.json()["choices"][0]["message"]
     if not isinstance(message, dict):
         raise RuntimeError("The provider returned an invalid agent message")
@@ -99,16 +137,16 @@ def safety_completion(prompt, credential_placeholder):
     }
     response = requests.post(provider["base_url"] + "/v1/chat/completions", json=payload, **request_options)
     try:
-        response.raise_for_status()
-    except requests.HTTPError:
-        if response.status_code != 400:
+        raise_for_provider_status(response)
+    except ProviderHTTPError as exc:
+        if exc.status_code != 400:
             raise
         # Some OpenAI-compatible proxies accept chat completions but not JSON mode.
         # The policy still requires JSON-only output, and the caller validates it.
         compatible_payload = dict(payload)
         compatible_payload.pop("response_format")
         response = requests.post(provider["base_url"] + "/v1/chat/completions", json=compatible_payload, **request_options)
-        response.raise_for_status()
+        raise_for_provider_status(response)
     content = response.json()["choices"][0]["message"]["content"]
     if not isinstance(content, str):
         raise RuntimeError("The safety provider returned an invalid response")
