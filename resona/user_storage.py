@@ -260,7 +260,7 @@ def _single_home_v4_page():
     return _single_home_v3_page().replace("</main>", volume_card + "</main>")
 
 
-def default_home_page():
+def _single_home_v5_page():
     noise_card = '''<section class="noise-generator-card" aria-labelledby="noise-generator-title">
   <div class="card-heading"><div><p>Continuous texture</p><h2 id="noise-generator-title">Noise generator</h2></div><span class="card-badge noise-badge">6 textures</span></div>
   <p class="card-intro">Choose a steady noise colour or an environmental texture to soften distractions and fill the room.</p>
@@ -282,6 +282,25 @@ def default_home_page():
     page = _single_home_v4_page().replace('<section class="volume-mixer-card"', noise_card + '<section class="volume-mixer-card"')
     noise_volume = '    <label><span><strong>Noise generator</strong><small>Overall noise output</small></span><output>50</output><input type="range" min="0" max="100" value="50" data-volume="noise"></label>\n'
     return page.replace("  </div>\n</section></main>", noise_volume + "  </div>\n</section></main>")
+
+
+def _single_home_v6_page():
+    frequency_control = '    <label class="drone-frequency-control"><span><strong>Drone frequency</strong><small>Harmonic root for drone, pads and melody</small></span><output>200 Hz</output><input type="range" min="40" max="400" step="1" value="200" data-drone-frequency></label>\n'
+    page = _single_home_v5_page().replace('  <div class="ambient-controls">\n', '  <div class="ambient-controls">\n' + frequency_control, 1)
+    return page.replace(
+        "Blend five evolving layers into a spacious composition that never loops the same way twice.",
+        "Set a tonal anchor, then blend five evolving layers. Pads and melody follow the root harmonically; textures stay broadband and spatial effects stay pitchless.",
+    )
+
+
+def default_home_page():
+    return _single_home_v6_page().replace(
+        "Harmonic root for drone, pads and melody",
+        "Shared harmonic root and binaural carrier",
+    ).replace(
+        "Set a tonal anchor, then blend five evolving layers. Pads and melody follow the root harmonically; textures stay broadband and spatial effects stay pitchless.",
+        "Set the shared tonal anchor for the ambient harmony and binaural carrier. Pads and melody follow it; textures stay broadband and spatial effects stay pitchless.",
+    )
 
 
 SINGLE_HOME_STYLES = '''
@@ -309,8 +328,8 @@ def _ensure_single_home_styles(root):
     if not css_path.is_file():
         return
     css = css_path.read_text(encoding="utf-8")
-    if "single-home-v5" not in css:
-        css_path.write_text(css.rstrip() + "\n/* single-home-v5 */\n" + SINGLE_HOME_STYLES + "\n", encoding="utf-8")
+    if "single-home-v6" not in css:
+        css_path.write_text(css.rstrip() + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n", encoding="utf-8")
 
 
 def _legacy_home_page():
@@ -340,6 +359,14 @@ def migrate_legacy_default_workspace(username):
     actual = [(item.get("id"), item.get("target_html")) for item in items if isinstance(item, dict)]
     current_home = home_path.read_text(encoding="utf-8")
     if actual == [("home", "pages/home.html")] and current_home == default_home_page():
+        _ensure_single_home_styles(root)
+        return True
+    if actual == [("home", "pages/home.html")] and current_home == _single_home_v5_page():
+        home_path.write_text(default_home_page(), encoding="utf-8")
+        _ensure_single_home_styles(root)
+        return True
+    if actual == [("home", "pages/home.html")] and current_home == _single_home_v6_page():
+        home_path.write_text(default_home_page(), encoding="utf-8")
         _ensure_single_home_styles(root)
         return True
     if actual == [("home", "pages/home.html")] and current_home == _single_home_v2_page():
@@ -376,8 +403,8 @@ def initialize_user_storage(username):
     (root / "memory/plan.md").write_text("# Vibe modification log\n\n", encoding="utf-8")
     (root / "memory/changelog.md").write_text("# Resona changelog\n\n", encoding="utf-8")
     css = '''*{box-sizing:border-box}html,body{min-height:100%;background:#121611}body{margin:0;color:#f5f1e8;font:500 16px/1.5 Inter,system-ui,sans-serif}.page{width:min(1040px,100%);margin:auto;padding:clamp(28px,6vw,72px) clamp(20px,5vw,54px) 150px}.eyebrow{margin:0;color:#b9e68c;text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:800}h1{font:600 clamp(42px,8vw,82px)/.98 Georgia,serif;letter-spacing:-.05em;margin:10px 0 14px}.intro{max-width:610px;margin:0;color:#b7b5ae}.binaural-panel{margin-top:clamp(34px,6vw,68px)}.panel-heading p{margin:0;color:#858b81;font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}.panel-heading h2{margin:5px 0 18px;font:400 clamp(25px,4vw,36px) Georgia,serif}.band-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.band-button{min-height:116px;padding:18px;border:1px solid rgba(255,255,255,.1);border-radius:20px;background:#1b2019;color:#f5f1e8;text-align:left;cursor:pointer;transition:.22s}.band-button strong,.band-button span{display:block}.band-button strong{font-size:18px}.band-button span{margin-top:8px;color:#8e948a;font-size:11px}.band-button:hover,.band-button.active{transform:translateY(-2px);border-color:#8daf6e;background:#24301f;box-shadow:0 14px 34px #0005}.band-button.active strong{color:#c4ef99}.playback-control{display:flex;flex-direction:column;align-items:center;margin-top:clamp(36px,7vw,72px)}.playback-control>p{color:#9ca396;font-size:12px}.play-toggle{display:flex;align-items:center;justify-content:center;gap:12px;width:160px;height:64px;border:0;border-radius:999px;background:#b9e68c;color:#15200f;box-shadow:0 0 0 9px rgba(185,230,140,.07),0 18px 45px #0007;cursor:pointer}.play-toggle:hover{transform:scale(1.03)}.play-toggle.playing{background:#f1eee5}.play-symbol{font-size:14px}.playback-control small{margin-top:15px;color:#696e66;font-size:10px;text-transform:uppercase;letter-spacing:.12em}@media(max-width:760px){.band-grid{grid-template-columns:repeat(2,1fr)}.band-button:last-child{grid-column:1/-1}.page{padding-top:28px}}@media(max-width:430px){h1{font-size:44px}.band-button{min-height:92px;padding:14px}.binaural-panel{margin-top:30px}.playback-control{margin-top:34px}}'''
-    (root / "static/user.css").write_text(css.rstrip() + "\n/* single-home-v5 */\n" + SINGLE_HOME_STYLES + "\n", encoding="utf-8")
-    (root / "static/custom_synth.js").write_text("window.ResonaCustomSynth = { version: 1, configure(engine) { engine.config.carrier = 216; } };\n", encoding="utf-8")
+    (root / "static/user.css").write_text(css.rstrip() + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n", encoding="utf-8")
+    (root / "static/custom_synth.js").write_text("window.ResonaCustomSynth = { version: 1, configure(engine) { engine.config.carrier = engine.config.ambient.droneFrequency; } };\n", encoding="utf-8")
     icon_paths = {"home": "M3 12h3l2-6 4 12 3-9 2 3h4"}
     for icon_name, path_data in icon_paths.items():
         svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="{path_data}"/></svg>'

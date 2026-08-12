@@ -29,6 +29,7 @@ PAGE_BRIDGE = r'''<script data-resona-bridge>
   document.querySelectorAll('[data-audio]').forEach(control => control.addEventListener('input', () => send('resona:audio', { action:'setLayer', name:control.dataset.audio, value:control.value })));
   document.querySelectorAll('[data-volume]').forEach(control => control.addEventListener('input', () => { const output = control.parentElement.querySelector('output'); if (output) output.textContent = control.value; send('resona:audio', { action:'setVolume', name:control.dataset.volume, value:control.value }); }));
   document.querySelectorAll('[data-ambient]').forEach(control => control.addEventListener('input', () => { const output = control.parentElement.querySelector('output'); if (output) output.textContent = control.value; send('resona:audio', { action:'setAmbient', name:control.dataset.ambient, value:control.value }); }));
+  document.querySelectorAll('[data-drone-frequency]').forEach(control => control.addEventListener('input', () => { const output = control.parentElement.querySelector('output'); if (output) output.textContent = control.value + ' Hz'; send('resona:audio', { action:'setDroneFrequency', value:control.value }); }));
   document.querySelectorAll('[data-ambient-toggle]').forEach(button => button.addEventListener('click', () => send('resona:audio', { action:'toggleAmbient' })));
   window.addEventListener('message', event => {
     const data = event.data;
@@ -42,7 +43,8 @@ PAGE_BRIDGE = r'''<script data-resona-bridge>
       });
       if (status) {
         const selected = document.querySelector('[data-band].active');
-        status.textContent = `${data.playing ? 'Playing' : 'Ready'} · ${selected?.querySelector('strong')?.textContent || 'Binaural'} ${selected?.dataset.band || data.config?.beat || 6} Hz`;
+        const beat = Number(selected?.dataset.band || data.config?.beat || 6), carrier = Number(data.config?.carrier || data.config?.ambient?.droneFrequency || 200), left = carrier - beat / 2, right = carrier + beat / 2, displayFrequency = value => Number.isInteger(value) ? value : value.toFixed(1);
+        status.textContent = `${data.playing ? 'Playing' : 'Ready'} · ${selected?.querySelector('strong')?.textContent || 'Binaural'} ${beat} Hz · ${displayFrequency(left)} / ${displayFrequency(right)} Hz`;
       }
       document.querySelectorAll('[data-ambient-toggle]').forEach(button => {
         button.classList.toggle('playing', data.ambientPlaying);
@@ -51,6 +53,7 @@ PAGE_BRIDGE = r'''<script data-resona-bridge>
         const symbol = button.querySelector('.play-symbol'); if (symbol) symbol.textContent = data.ambientPlaying ? '■' : '✦';
       });
       const ambientStatus = document.querySelector('[data-ambient-status]'); if (ambientStatus) ambientStatus.textContent = data.ambientPlaying ? 'Evolving soundscape playing' : 'Soundscape ready';
+      document.querySelectorAll('[data-drone-frequency]').forEach(control => { if (data.config?.ambient?.droneFrequency == null) return; control.value = data.config.ambient.droneFrequency; const output = control.parentElement.querySelector('output'); if (output) output.textContent = data.config.ambient.droneFrequency + ' Hz'; });
       document.querySelectorAll('[data-noise-toggle]').forEach(button => { button.classList.toggle('playing', data.noisePlaying); button.setAttribute('aria-pressed', String(data.noisePlaying)); const label = button.querySelector('strong'); if (label) label.textContent = data.noisePlaying ? 'Stop noise' : 'Play noise'; const symbol = button.querySelector('.play-symbol'); if (symbol) symbol.textContent = data.noisePlaying ? '■' : '≈'; });
       const selectedNoise = document.querySelector('[data-noise].active'); const noiseStatus = document.querySelector('[data-noise-status]'); if (noiseStatus) noiseStatus.textContent = `${selectedNoise?.querySelector('strong')?.textContent || data.config?.noise || 'Pink'} noise ${data.noisePlaying ? 'playing' : 'ready'}`;
       document.querySelectorAll('[data-volume]').forEach(control => { const value = data.config?.volumes?.[control.dataset.volume]; if (Number.isFinite(Number(value))) { control.value = value; const output = control.parentElement.querySelector('output'); if (output) output.textContent = value; } });

@@ -20,11 +20,13 @@ def test_registration_creates_isolated_default_workspace(app, registered):
         assert nav["nav_items"][0]["label"] == "Home"
         assert nav["nav_items"][0]["icon_path"] == "static/icons/home.svg"
         assert safe_path("listener", "static/icons/home.svg").exists()
-        assert "configure(engine)" in safe_path("listener", "static/custom_synth.js").read_text()
+        assert "engine.config.carrier = engine.config.ambient.droneFrequency" in safe_path("listener", "static/custom_synth.js").read_text()
         assert "data-playback-toggle" in safe_path("listener", "pages/home.html").read_text()
         assert "data-band=\"6\"" in safe_path("listener", "pages/home.html").read_text()
         assert "Ambient music generator" in safe_path("listener", "pages/home.html").read_text()
         assert "data-ambient=\"drone\"" in safe_path("listener", "pages/home.html").read_text()
+        assert "data-drone-frequency" in safe_path("listener", "pages/home.html").read_text()
+        assert "200 Hz" in safe_path("listener", "pages/home.html").read_text()
         assert "Minimal melodic elements" in safe_path("listener", "pages/home.html").read_text()
         assert "volume-mixer-card" in safe_path("listener", "pages/home.html").read_text()
         assert "data-volume=\"binaural\"" in safe_path("listener", "pages/home.html").read_text()
@@ -231,7 +233,7 @@ def test_player_upgrades_untouched_single_home_to_ambient_generator(app, registe
         styles = safe_path("listener", "static/user.css").read_text()
         assert "Ambient music generator" in home
         assert "data-ambient-toggle" in home
-        assert "single-home-v5" in styles
+        assert "single-home-v6" in styles
 
 
 def test_player_upgrades_untouched_ambient_home_to_master_volume_card(app, registered):
@@ -259,6 +261,31 @@ def test_player_upgrades_untouched_volume_home_to_noise_generator(app, registere
         assert "data-noise=\"white\"" in home
         assert "data-noise=\"brown\"" in home
         assert "data-volume=\"noise\"" in home
+
+
+def test_player_upgrades_untouched_noise_home_to_drone_frequency_control(app, registered):
+    from resona.user_storage import _single_home_v5_page
+
+    with app.app_context():
+        safe_path("listener", "pages/home.html").write_text(_single_home_v5_page(), encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        home = safe_path("listener", "pages/home.html").read_text()
+        assert 'min="40" max="400"' in home
+        assert "data-drone-frequency" in home
+        assert "Shared harmonic root and binaural carrier" in home
+
+
+def test_player_upgrades_drone_control_to_shared_binaural_carrier(app, registered):
+    from resona.user_storage import _single_home_v6_page
+
+    with app.app_context():
+        safe_path("listener", "pages/home.html").write_text(_single_home_v6_page(), encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        home = safe_path("listener", "pages/home.html").read_text()
+        assert "Shared harmonic root and binaural carrier" in home
+        assert "ambient harmony and binaural carrier" in home
 
 
 def test_authentication_gate_blocks_other_user_storage(app, registered):
@@ -305,6 +332,32 @@ def test_binaural_engine_never_starts_or_controls_noise(registered):
     assert "this.start()" not in noise_selection
     assert "this.stopNoise()" in noise_selection
     assert "this.startNoise()" in noise_selection
+
+
+def test_ambient_layers_and_binaural_carrier_follow_drone_without_tuning_textures(registered):
+    audio = registered.get("/static/js/audio.js").get_data(as_text=True)
+    frequency_map = audio.split("    ambientFrequencies(", 1)[1].split("    setDroneFrequency(", 1)[0]
+    frequency_update = audio.split("    setDroneFrequency(", 1)[1].split("    startAmbient()", 1)[0]
+    assert "root * 1.25" in frequency_map
+    assert "root * 1.5" in frequency_map
+    assert "root * 2.5" in frequency_map
+    assert "root * 3" in frequency_map
+    assert "root * 4" in frequency_map
+    assert "textures" not in frequency_map
+    assert "textureFilter" not in frequency_update
+    assert "this.config.carrier = root" in frequency_update
+    assert "this.updateBinauralFrequencies()" in frequency_update
+    assert "setTargetAtTime" in frequency_update
+
+
+def test_binaural_pair_is_symmetric_around_drone_frequency(registered):
+    audio = registered.get("/static/js/audio.js").get_data(as_text=True)
+    pair = audio.split("    binauralPair(", 1)[1].split("    updateBinauralFrequencies()", 1)[0]
+    update = audio.split("    updateBinauralFrequencies()", 1)[1].split("    setBeat(", 1)[0]
+    assert "left:center - beat / 2" in pair
+    assert "right:center + beat / 2" in pair
+    assert "this.left.frequency.setTargetAtTime(pair.left" in update
+    assert "this.right.frequency.setTargetAtTime(pair.right" in update
 
 
 def test_path_traversal_is_rejected(app):

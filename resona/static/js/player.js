@@ -26,6 +26,7 @@
       else if (data.action === 'setLayer' && typeof data.name === 'string' && Number.isFinite(Number(data.value))) window.resonaAudio.setLayer(data.name, Math.max(0, Math.min(100, Number(data.value))));
       else if (data.action === 'setVolume' && ['binaural','ambient','noise'].includes(data.name || data.volumeType) && Number.isFinite(Number(data.value ?? data.volumeValue))) window.resonaAudio.setVolume(data.name || data.volumeType, Math.max(0, Math.min(100, Number(data.value ?? data.volumeValue))));
       else if (data.action === 'toggleAmbient') window.resonaAudio.toggleAmbient();
+      else if (data.action === 'setDroneFrequency' && Number.isFinite(Number(data.value))) window.resonaAudio.setDroneFrequency(Math.max(40, Math.min(400, Number(data.value))));
       else if (data.action === 'setAmbient' && ['drone','pads','textures','melody','spatial'].includes(data.name) && Number.isFinite(Number(data.value))) window.resonaAudio.setAmbient(data.name, Math.max(0, Math.min(100, Number(data.value))));
       else if (data.action === 'toggleNoise') window.resonaAudio.toggleNoise();
       sendAudioState();
