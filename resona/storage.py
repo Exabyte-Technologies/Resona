@@ -36,6 +36,41 @@ PAGE_BRIDGE = r'''<script data-resona-bridge>
     move: (source, destination) => fileRequest('move', { source, destination }),
     delete: path => fileRequest('delete', { path })
   });
+  const setRangeFromPointer = (control, clientX) => {
+    const rect = control.getBoundingClientRect();
+    const minimum = Number(control.min || 0);
+    const maximum = Number(control.max || 100);
+    const step = Number(control.step || 1);
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+    const rawValue = minimum + ratio * (maximum - minimum);
+    const steppedValue = minimum + Math.round((rawValue - minimum) / step) * step;
+    const precision = (String(step).split('.')[1] || '').length;
+    control.value = String(Math.max(minimum, Math.min(maximum, Number(steppedValue.toFixed(precision)))));
+    control.dispatchEvent(new Event('input', { bubbles:true }));
+  };
+  document.querySelectorAll('input[type="range"]').forEach(control => {
+    control.style.touchAction = 'none';
+    control.addEventListener('pointerdown', event => {
+      if (event.pointerType !== 'touch' || control.disabled) return;
+      event.preventDefault();
+      control.setPointerCapture?.(event.pointerId);
+      setRangeFromPointer(control, event.clientX);
+      const move = moveEvent => {
+        if (moveEvent.pointerId !== event.pointerId) return;
+        moveEvent.preventDefault();
+        setRangeFromPointer(control, moveEvent.clientX);
+      };
+      const finish = endEvent => {
+        if (endEvent.pointerId !== event.pointerId) return;
+        control.removeEventListener('pointermove', move);
+        control.removeEventListener('pointerup', finish);
+        control.removeEventListener('pointercancel', finish);
+      };
+      control.addEventListener('pointermove', move);
+      control.addEventListener('pointerup', finish);
+      control.addEventListener('pointercancel', finish);
+    });
+  });
   const status = document.querySelector('[data-playback-status]');
   document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => send('resona:audio', { action:'applyMode', mode:button.dataset.mode })));
   document.querySelectorAll('[data-session-toggle]').forEach(button => button.addEventListener('click', () => send('resona:audio', { action:'toggleSession' })));

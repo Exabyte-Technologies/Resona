@@ -743,6 +743,32 @@ def test_user_pages_use_opaque_script_sandbox_and_strict_csp(registered):
     assert b"data-noise-toggle" in page.data
 
 
+def test_mobile_navigation_reserves_an_even_center_lane_for_agent_button(registered):
+    player = registered.get("/player/").get_data(as_text=True)
+    styles = registered.get("/static/css/app.css").get_data(as_text=True)
+
+    assert player.count('class="nav-side nav-side-left"') == 1
+    assert player.count('class="nav-side nav-side-right"') == 1
+    assert player.count('class="mic-gap"') == 1
+    assert "grid-template-columns:minmax(0,1fr) 88px minmax(0,1fr)" in styles
+    assert ".nav-side{display:flex;min-width:0;align-items:center;justify-content:space-evenly}" in styles
+    assert ".nav-item{flex:1 1 0;min-width:0;max-width:112px" in styles
+    assert ".nav-scroll:has(.nav-item:only-of-type)" not in styles
+
+
+def test_user_page_ranges_drag_on_the_first_phone_touch(registered):
+    page = registered.get("/storage/listener/pages/home.html").get_data(as_text=True)
+
+    assert "document.querySelectorAll('input[type=\"range\"]')" in page
+    assert 'input[type="range"]{touch-action:none!important}' in page
+    assert "control.style.touchAction = 'none'" in page
+    assert "event.pointerType !== 'touch' || control.disabled" in page
+    assert "control.setPointerCapture?.(event.pointerId)" in page
+    assert "setRangeFromPointer(control, event.clientX)" in page
+    assert "setRangeFromPointer(control, moveEvent.clientX)" in page
+    assert "control.dispatchEvent(new Event('input', { bubbles:true }))" in page
+
+
 def test_frontend_persistent_file_api_supports_full_lifecycle(app, registered):
     headers = {"X-CSRF-Token": session_csrf(registered)}
     endpoint = "/player/api/files"
