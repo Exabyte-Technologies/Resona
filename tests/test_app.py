@@ -102,6 +102,10 @@ def test_registration_creates_isolated_default_workspace(app, registered):
         assert "data-session-toggle" in home and "data-master-volume" in home
         assert "data-playback-toggle" in advanced
         assert "data-band=\"6\"" in advanced
+        assert 'data-binaural-mode-card="individual"' in advanced
+        assert 'data-binaural-mode-card="difference"' in advanced
+        assert 'data-ear-frequency="left"' in advanced and 'data-ear-frequency="right"' in advanced
+        assert "data-binaural-difference" in advanced
         assert "Ambient music generator" in advanced
         assert all(f'data-atmosphere="{mood}"' in advanced for mood in ("restore", "melancholy", "deep"))
         assert all(f'data-synth-parameter="{name}"' in advanced for name in ("warmth", "movement", "space", "texture", "shimmer", "output"))
@@ -130,6 +134,7 @@ def test_registration_creates_isolated_default_workspace(app, registered):
         user_css = safe_path("listener", "static/user.css").read_text()
         assert "mobile-readability-v1" in user_css
         assert "ambient-synth-v1" in user_css
+        assert "binaural-tuning-v1" in user_css
         assert "@media(max-width:600px)" in user_css
         assert "body{overflow-x:hidden;font-size:16px" in user_css
         assert "min-height:48px" in user_css
@@ -459,6 +464,26 @@ def test_player_upgrades_only_exact_legacy_advanced_synth_page(app, registered):
         assert 'data-synth-parameter="warmth"' not in preserved
 
 
+def test_player_upgrades_only_exact_pre_tuner_ambient_synth_page(app, registered):
+    from resona.user_storage import _ambient_synth_v1_advanced_page
+
+    with app.app_context():
+        advanced_path = safe_path("listener", "pages/advanced.html")
+        advanced_path.write_text(_ambient_synth_v1_advanced_page(), encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        upgraded = safe_path("listener", "pages/advanced.html").read_text()
+        assert 'data-ear-frequency="left"' in upgraded
+        assert "data-binaural-difference" in upgraded
+        customized = _ambient_synth_v1_advanced_page().replace("Atmosphere", "My atmosphere", 1)
+        safe_path("listener", "pages/advanced.html").write_text(customized, encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        preserved = safe_path("listener", "pages/advanced.html").read_text()
+        assert "My atmosphere" in preserved
+        assert "data-binaural-difference" not in preserved
+
+
 def test_player_upgrades_untouched_single_home_to_ambient_generator(app, registered):
     from resona.user_storage import _single_home_v2_page
 
@@ -637,6 +662,22 @@ def test_synth_bridge_actions_are_allowlisted_and_state_synchronized(registered)
     assert "data.config?.ambient?.tonalSource" in advanced
 
 
+def test_binaural_tuning_bridge_exposes_mutually_exclusive_modes(registered):
+    player = registered.get("/static/js/player.js").get_data(as_text=True)
+    advanced = registered.get("/storage/listener/pages/advanced.html").get_data(as_text=True)
+    assert "data.action === 'setBinauralMode'" in player
+    assert "['individual','difference'].includes(data.value)" in player
+    assert "data.action === 'setEarFrequency'" in player
+    assert "['left','right'].includes(data.ear)" in player
+    assert "action:'setBinauralMode'" in advanced
+    assert "action:'setEarFrequency'" in advanced
+    assert "action:'setBeat'" in advanced
+    assert "card.querySelectorAll('input').forEach(control => { control.disabled = !selected; })" in advanced
+    assert "data.config?.binauralMode" in advanced
+    assert 'min="40" max="400" step="0.5"' in advanced
+    assert 'min="0.1" max="100" step="0.1"' in advanced
+
+
 def test_atmosphere_presets_and_tonal_sources_preserve_independent_output_stages(registered):
     audio = registered.get("/static/js/audio.js").get_data(as_text=True)
     assert "restore:{ warmth:72, movement:50, space:62, texture:24, shimmer:46 }" in audio
@@ -757,6 +798,10 @@ def test_agent_is_taught_full_ambient_synth_controls_and_mobile_requirements():
     assert "six-layer native Web Audio synth" in system
     assert "Generated mode disables that internal chord cycle" in system
     assert "every pitched synth layer plus the binaural carrier" in system
+    assert "setBinauralMode" in system and "individual or difference" in system
+    assert "setEarFrequency" in system and "left or right" in system
+    assert "disables the beat-difference card" in system
+    assert "setBeat`, Home modes, and binaural band presets select difference mode" in system
     assert "comfortable and readable on phones down to 320px" in system
 
 
@@ -802,6 +847,24 @@ def test_binaural_pair_is_symmetric_around_active_chord_carrier(registered):
     assert "if (chordTransition === null) parameter.setTargetAtTime(frequency, now, glide)" in update
     assert "else if (chordTransition <= 0) parameter.setValueAtTime(frequency, now)" in update
     assert "parameter.linearRampToValueAtTime(frequency, now + chordTransition)" in update
+
+
+def test_individual_ear_tuning_and_difference_tuning_cannot_conflict(registered):
+    audio = registered.get("/static/js/audio.js").get_data(as_text=True)
+    pair = audio.split("    binauralPair(", 1)[1].split("    updateBinauralFrequencies(", 1)[0]
+    mode = audio.split("    setBinauralMode(mode)", 1)[1].split("    setEarFrequency(", 1)[0]
+    ear = audio.split("    setEarFrequency(ear, value)", 1)[1].split("    setBeat(", 1)[0]
+    beat = audio.split("    setBeat(value)", 1)[1].split("    setChordTransition(", 1)[0]
+    assert "this.config.binauralMode === 'individual'" in pair
+    assert "left:this.config.leftFrequency" in pair and "right:this.config.rightFrequency" in pair
+    assert "this.config.carrier - this.config.beat / 2" in mode
+    assert "this.config.binauralMode = mode" in mode
+    assert "this.setBinauralMode('individual')" in ear
+    assert "Math.max(40, Math.min(400, Number(value)))" in ear
+    assert "this.config.binauralMode = 'difference'" in beat
+    assert "Math.max(.1, Math.min(Number(value), 100" in beat
+    assert "binauralToneCenter()" in audio
+    assert "const center = this.binauralToneCenter()" in audio
 
 
 def test_chord_progression_harmonizes_all_pitched_ambient_layers_in_browser(registered):

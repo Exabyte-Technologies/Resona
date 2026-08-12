@@ -23,7 +23,7 @@
       this.ambientShutdownToken = 0;
       this.harmonyStep = 0;
       this.noiseNodes = [];
-      this.config = { carrier: midiToFrequency(53), beat: 6, noise: 'pink', master: 70, mode: 'meditation', volumes: { binaural: 50, ambient: 50, noise: 50 }, layers: { pad: .72, flute: .38, strings: .51, bells: .24 }, ambient: { droneFrequency:midiToFrequency(53), manualRootMidi:53, atmosphere:'deep', tonalSource:'manual', parameters:{ warmth:80, movement:25, space:82, texture:20, shimmer:21, output:58 }, drone:58, pads:68, textures:30, melody:18, spatial:58, chordProgression:[], chordDuration:4, chordTransition:0, binauralChordTransition:0 } };
+      this.config = { carrier: midiToFrequency(53), beat: 6, binauralMode:'difference', leftFrequency:midiToFrequency(53) - 3, rightFrequency:midiToFrequency(53) + 3, noise: 'pink', master: 70, mode: 'meditation', volumes: { binaural: 50, ambient: 50, noise: 50 }, layers: { pad: .72, flute: .38, strings: .51, bells: .24 }, ambient: { droneFrequency:midiToFrequency(53), manualRootMidi:53, atmosphere:'deep', tonalSource:'manual', parameters:{ warmth:80, movement:25, space:82, texture:20, shimmer:21, output:58 }, drone:58, pads:68, textures:30, melody:18, spatial:58, chordProgression:[], chordDuration:4, chordTransition:0, binauralChordTransition:0 } };
       if (window.ResonaCustomSynth && typeof window.ResonaCustomSynth.configure === 'function') window.ResonaCustomSynth.configure(this);
       this.config.ambient.droneFrequency = Math.max(40, Math.min(400, Number(this.config.ambient.droneFrequency) || 200));
       this.config.ambient.manualRootMidi = Number.isFinite(Number(this.config.ambient.manualRootMidi)) ? Number(this.config.ambient.manualRootMidi) : frequencyToMidi(this.config.ambient.droneFrequency);
@@ -51,13 +51,14 @@
       const left = ctx.createOscillator(), right = ctx.createOscillator(), merger = ctx.createChannelMerger(2), lGain = ctx.createGain(), rGain = ctx.createGain();
       const pair = this.binauralPair();
       left.type = right.type = 'sine'; left.frequency.value = pair.left; right.frequency.value = pair.right; lGain.gain.value = rGain.gain.value = .16; left.connect(lGain).connect(merger, 0, 0); right.connect(rGain).connect(merger, 0, 1); merger.connect(master); left.start(); right.start();
-      const tones = [[this.config.carrier / 2, 'sine', .045], [this.config.carrier * 1.5, 'triangle', .018], [this.config.carrier * 2, 'sine', .009]], binauralTones = [];
+      const toneCenter = this.binauralToneCenter(), tones = [[toneCenter / 2, 'sine', .045], [toneCenter * 1.5, 'triangle', .018], [toneCenter * 2, 'sine', .009]], binauralTones = [];
       tones.forEach(([frequency, type, gainValue], index) => { const osc = ctx.createOscillator(), gain = ctx.createGain(); osc.type = type; osc.frequency.value = frequency; gain.gain.value = gainValue * Object.values(this.config.layers)[index] || gainValue; osc.connect(gain).connect(master); osc.start(); binauralTones.push(osc); this.nodes.push(osc, gain); });
       this.nodes.push(left, right, lGain, rGain, merger, master); this.master = master; this.left = left; this.right = right; this.binauralTones = binauralTones; this.leftGain = lGain; this.rightGain = rGain; this.playing = true;
     }
     stop() { if (!this.playing) return; const now = this.context.currentTime; this.master.gain.cancelScheduledValues(now); this.master.gain.setValueAtTime(Math.max(this.master.gain.value, .0001), now); this.master.gain.exponentialRampToValueAtTime(.0001, now + .5); const nodes = this.nodes.slice(); setTimeout(() => nodes.forEach(node => { try { if (node.stop) node.stop(); else node.disconnect(); } catch (_) {} }), 600); this.nodes = []; this.binauralTones = null; this.playing = false; }
     toggle() { this.playing ? this.stop() : this.start(); return this.playing; }
-    binauralPair(center = this.config.carrier, beat = this.config.beat) { return { left:center - beat / 2, right:center + beat / 2 }; }
+    binauralPair(center = this.config.carrier, beat = this.config.beat) { return this.config.binauralMode === 'individual' ? { left:this.config.leftFrequency, right:this.config.rightFrequency } : { left:center - beat / 2, right:center + beat / 2 }; }
+    binauralToneCenter() { const pair = this.binauralPair(); return (pair.left + pair.right) / 2; }
     updateBinauralFrequencies(chordTransition = null) {
       if (!this.playing) return;
       const pair = this.binauralPair(), now = this.context.currentTime;
@@ -68,9 +69,20 @@
         else { parameter.setValueAtTime(parameter.value, now); parameter.linearRampToValueAtTime(frequency, now + chordTransition); }
       };
       retune(this.left.frequency, pair.left, .3); retune(this.right.frequency, pair.right, .3);
-      [this.config.carrier / 2, this.config.carrier * 1.5, this.config.carrier * 2].forEach((frequency, index) => retune(this.binauralTones[index].frequency, frequency, .35));
+      const center = this.binauralToneCenter(); [center / 2, center * 1.5, center * 2].forEach((frequency, index) => retune(this.binauralTones[index].frequency, frequency, .35));
     }
-    setBeat(value) { this.config.beat = Math.max(.1, Math.min(Number(value), this.config.carrier * 1.8)); this.updateBinauralFrequencies(); }
+    setBinauralMode(mode) {
+      if (!['individual','difference'].includes(mode)) return;
+      if (mode === 'individual' && this.config.binauralMode !== 'individual') { const pair = { left:this.config.carrier - this.config.beat / 2, right:this.config.carrier + this.config.beat / 2 }; this.config.leftFrequency = pair.left; this.config.rightFrequency = pair.right; }
+      this.config.binauralMode = mode; this.updateBinauralFrequencies();
+    }
+    setEarFrequency(ear, value) {
+      if (!['left','right'].includes(ear)) return;
+      if (this.config.binauralMode !== 'individual') this.setBinauralMode('individual');
+      this.config[ear === 'left' ? 'leftFrequency' : 'rightFrequency'] = Math.max(40, Math.min(400, Number(value)));
+      this.updateBinauralFrequencies();
+    }
+    setBeat(value) { this.config.binauralMode = 'difference'; this.config.beat = Math.max(.1, Math.min(Number(value), 100, this.config.carrier * 1.8)); this.updateBinauralFrequencies(); }
     setChordTransition(value) { this.config.ambient.chordTransition = Math.max(0, Math.min(4, Number(value) || 0)); }
     setBinauralChordTransition(value) { this.config.ambient.binauralChordTransition = Math.max(0, Math.min(4, Number(value) || 0)); }
     setLayer(name, value) { if (name in this.config.layers) this.config.layers[name] = Number(value) / 100; }

@@ -109,6 +109,8 @@
       else if (data.action === 'applyMode') applyMode(data.mode);
       else if (data.action === 'setMaster' && Number.isFinite(Number(data.value))) window.resonaAudio.setMaster(data.value);
       else if (data.action === 'setBeat' && Number.isFinite(Number(data.value))) window.resonaAudio.setBeat(Math.max(.1, Math.min(100, Number(data.value))));
+      else if (data.action === 'setBinauralMode' && ['individual','difference'].includes(data.value)) window.resonaAudio.setBinauralMode(data.value);
+      else if (data.action === 'setEarFrequency' && ['left','right'].includes(data.ear) && Number.isFinite(Number(data.value))) window.resonaAudio.setEarFrequency(data.ear, Math.max(40, Math.min(400, Number(data.value))));
       else if (data.action === 'setNoise' && ['white','pink','brown','rain','ocean','forest'].includes(data.value)) { const restartsNoise = window.resonaAudio.noisePlaying; window.resonaAudio.setNoise(data.value); if (restartsNoise) setTimeout(sendAudioState, 950); }
       else if (data.action === 'setLayer' && typeof data.name === 'string' && Number.isFinite(Number(data.value))) window.resonaAudio.setLayer(data.name, Math.max(0, Math.min(100, Number(data.value))));
       else if (data.action === 'setVolume' && ['binaural','ambient','noise'].includes(data.name || data.volumeType) && Number.isFinite(Number(data.value ?? data.volumeValue))) window.resonaAudio.setVolume(data.name || data.volumeType, Math.max(0, Math.min(100, Number(data.value ?? data.volumeValue))));

@@ -397,7 +397,7 @@ def _legacy_default_advanced_page():
     )
 
 
-def default_advanced_page():
+def _ambient_synth_v1_advanced_page():
     legacy_controls = '''  <div class="ambient-controls">
     <label class="drone-frequency-control"><span><strong>Drone frequency</strong><small>Base root for harmony and binaural chords</small></span><output>200 Hz</output><input type="range" min="40" max="400" step="1" value="200" data-drone-frequency></label>
     <label><span><strong>Drone</strong><small>Low, grounding foundation</small></span><output>48</output><input type="range" min="0" max="100" value="48" data-ambient="drone"></label>
@@ -449,6 +449,27 @@ def default_advanced_page():
         "Lush pads and melodic tones",
         "All pitched ambient synth layers",
     )
+
+
+def default_advanced_page():
+    tuning_cards = '''  <section class="binaural-tuning-subcard inactive" data-binaural-mode-card="individual" aria-labelledby="individual-frequency-title" aria-disabled="true">
+    <div class="binaural-tuning-heading"><div><p>Direct tuning</p><h3 id="individual-frequency-title">Left &amp; right ear frequencies</h3></div><button data-binaural-mode="individual" aria-pressed="false">Use individual</button></div>
+    <p>Set the exact tone delivered to each ear. This disables the frequency-difference control to prevent conflicting tuning.</p>
+    <div class="binaural-knob-grid">
+      <label class="binaural-knob" style="--value:36.55"><input type="range" min="40" max="400" step="0.5" value="171.5" aria-label="Left ear frequency" data-ear-frequency="left" disabled><span class="binaural-knob-face" aria-hidden="true"><i></i></span><strong>Left ear</strong><output>171.5 Hz</output></label>
+      <label class="binaural-knob" style="--value:38.19"><input type="range" min="40" max="400" step="0.5" value="177.5" aria-label="Right ear frequency" data-ear-frequency="right" disabled><span class="binaural-knob-face" aria-hidden="true"><i></i></span><strong>Right ear</strong><output>177.5 Hz</output></label>
+    </div>
+  </section>
+  <section class="binaural-tuning-subcard active" data-binaural-mode-card="difference" aria-labelledby="difference-frequency-title" aria-disabled="false">
+    <div class="binaural-tuning-heading"><div><p>Symmetric tuning</p><h3 id="difference-frequency-title">Binaural beat difference</h3></div><button data-binaural-mode="difference" class="active" aria-pressed="true">Active</button></div>
+    <p>Set the frequency difference between both ears around the current tonal centre. Individual ear controls are disabled while this is active.</p>
+    <div class="binaural-knob-grid single">
+      <label class="binaural-knob difference-knob" style="--value:5.91"><input type="range" min="0.1" max="100" step="0.1" value="6" aria-label="Binaural beat frequency difference" data-binaural-difference><span class="binaural-knob-face" aria-hidden="true"><i></i></span><strong>Difference</strong><output>6 Hz</output></label>
+    </div>
+  </section>
+'''
+    marker = '  <section class="binaural-transition-subcard"'
+    return _ambient_synth_v1_advanced_page().replace(marker, tuning_cards + marker, 1)
 
 
 def default_home_page():
@@ -520,6 +541,12 @@ AMBIENT_SYNTH_STYLES = '''
 @media(max-width:600px){.synth-control-group{padding:16px}.synth-section-heading h3{font-size:22px}.synth-section-heading p{font-size:12px}.atmosphere-options{grid-template-columns:1fr}.atmosphere-options button{min-height:52px;padding:11px 13px}.atmosphere-options strong{font-size:14px}.atmosphere-options small{font-size:12px}.tonal-source button,.root-options button{min-height:48px;font-size:13px}.root-options{grid-template-columns:repeat(3,1fr)}.synth-knob-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 12px}.synth-knob input,.knob-face{width:76px;height:76px}.knob-face i{height:26px;transform-origin:50% 29px}.synth-knob strong,.synth-knob output{font-size:13px}.synth-layer-list{grid-template-columns:repeat(2,1fr)}.synth-layer-list li{padding:9px;font-size:11px}}
 '''
 
+BINAURAL_TUNING_STYLES = '''
+/* binaural-tuning-v1 */
+.binaural-tuning-subcard{position:relative;margin-top:14px;padding:16px;border:1px solid rgba(185,230,140,.12);border-radius:20px;background:rgba(8,13,8,.3);transition:opacity .2s,border-color .2s,background .2s}.binaural-tuning-subcard.active{border-color:rgba(185,230,140,.27);background:rgba(18,28,15,.44)}.binaural-tuning-subcard.inactive{border-color:rgba(255,255,255,.055);background:rgba(8,10,8,.22)}.binaural-tuning-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.binaural-tuning-heading p{margin:0;color:#78896c;font-size:8px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.binaural-tuning-heading h3{margin:3px 0 0;font:400 20px/1.1 Georgia,serif}.binaural-tuning-heading button{flex:none;min-height:34px;padding:7px 10px;border:1px solid rgba(185,230,140,.15);border-radius:999px;background:#182116;color:#9aad8c;font-size:8px;font-weight:750}.binaural-tuning-heading button.active{border-color:transparent;background:#b9e68c;color:#15200f}.binaural-tuning-subcard>p{margin:8px 0 14px;color:#747e72;font-size:8px;line-height:1.5}.binaural-knob-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.binaural-knob-grid.single{grid-template-columns:minmax(120px,180px);justify-content:center}.binaural-tuning-subcard.inactive .binaural-knob-grid{opacity:.32;filter:saturate(.35);pointer-events:none}.binaural-knob{position:relative;display:grid;justify-items:center;grid-template-columns:1fr auto;min-width:0;color:#aab5a4}.binaural-knob input{position:absolute;z-index:2;top:0;left:50%;width:82px;height:82px;margin:0;opacity:0;transform:translateX(-50%);cursor:grab;touch-action:pan-y}.binaural-knob input:disabled{cursor:not-allowed}.binaural-knob-face{position:relative;grid-column:1/-1;display:block;width:82px;height:82px;border:1px solid rgba(185,230,140,.15);border-radius:50%;background:radial-gradient(circle at 39% 31%,#313a2d,#182016 64%,#0c100b);box-shadow:inset 0 1px 1px rgba(255,255,255,.08),0 9px 22px rgba(0,0,0,.28)}.binaural-knob-face:before{content:"";position:absolute;inset:7px;border:2px solid #9fc879;border-radius:50%;opacity:.24}.binaural-knob-face i{position:absolute;left:50%;top:9px;width:2px;height:29px;border-radius:2px;background:#b9e68c;box-shadow:0 0 8px rgba(185,230,140,.52);transform-origin:50% 32px;transform:translateX(-50%) rotate(calc(-135deg + var(--value)*2.7deg))}.binaural-knob input:focus-visible+.binaural-knob-face{outline:3px solid rgba(185,230,140,.4);outline-offset:3px}.binaural-knob strong{justify-self:start;margin-top:9px;font-size:9px}.binaural-knob output{justify-self:end;margin-top:9px;color:#b9e68c;font-size:9px;font-variant-numeric:tabular-nums}
+@media(max-width:600px){.binaural-tuning-subcard{padding:16px}.binaural-tuning-heading{flex-wrap:wrap}.binaural-tuning-heading h3{font-size:22px}.binaural-tuning-heading p,.binaural-tuning-subcard>p{font-size:12px}.binaural-tuning-heading button{min-height:48px;padding:10px 14px;font-size:13px}.binaural-knob-grid{gap:18px 12px}.binaural-knob input,.binaural-knob-face{width:88px;height:88px}.binaural-knob-face i{height:31px;transform-origin:50% 35px}.binaural-knob strong,.binaural-knob output{font-size:13px}}
+'''
+
 MOBILE_READABILITY_STYLES = '''
 /* mobile-readability-v1 */
 @media(max-width:600px){
@@ -546,6 +573,8 @@ def _ensure_single_home_styles(root):
         additions += "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES
     if "ambient-synth-v1" not in css:
         additions += "\n" + AMBIENT_SYNTH_STYLES
+    if "binaural-tuning-v1" not in css:
+        additions += "\n" + BINAURAL_TUNING_STYLES
     if "mobile-readability-v1" not in css:
         additions += "\n" + MOBILE_READABILITY_STYLES
     if additions:
@@ -589,7 +618,7 @@ def migrate_legacy_default_workspace(username):
     advanced_path = root / "pages/advanced.html"
     current_advanced = advanced_path.read_text(encoding="utf-8") if advanced_path.is_file() else None
     advanced_defaults = (
-        default_advanced_page(), _legacy_default_advanced_page(), _single_home_v2_page(), _single_home_v3_page(),
+        default_advanced_page(), _ambient_synth_v1_advanced_page(), _legacy_default_advanced_page(), _single_home_v2_page(), _single_home_v3_page(),
         _single_home_v4_page(), _single_home_v5_page(), _single_home_v6_page(), _single_home_v7_page(),
         _single_home_v8_page(), _single_home_v9_page(), _single_home_v10_page(), _single_home_v11_page(),
         _single_home_v12_page(),
@@ -605,7 +634,7 @@ def migrate_legacy_default_workspace(username):
         if current_home in advanced_defaults:
             home_path.write_text(default_home_page(), encoding="utf-8")
             advanced_path.write_text(default_advanced_page(), encoding="utf-8")
-        elif current_home == default_home_page() and current_advanced == _legacy_default_advanced_page():
+        elif current_home == default_home_page() and current_advanced in (_legacy_default_advanced_page(), _ambient_synth_v1_advanced_page()):
             advanced_path.write_text(default_advanced_page(), encoding="utf-8")
         _ensure_single_home_styles(root)
         _ensure_default_navigation_icons(root)
@@ -681,7 +710,7 @@ def initialize_user_storage(username):
     (root / "memory/plan.md").write_text("# Vibe modification log\n\n", encoding="utf-8")
     (root / "memory/changelog.md").write_text("# Resona changelog\n\n", encoding="utf-8")
     css = '''*{box-sizing:border-box}html,body{min-height:100%;background:#121611}body{margin:0;color:#f5f1e8;font:500 16px/1.5 Inter,system-ui,sans-serif}.page{width:min(1040px,100%);margin:auto;padding:clamp(28px,6vw,72px) clamp(20px,5vw,54px) 150px}.eyebrow{margin:0;color:#b9e68c;text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:800}h1{font:600 clamp(42px,8vw,82px)/.98 Georgia,serif;letter-spacing:-.05em;margin:10px 0 14px}.intro{max-width:610px;margin:0;color:#b7b5ae}.binaural-panel{margin-top:clamp(34px,6vw,68px)}.panel-heading p{margin:0;color:#858b81;font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}.panel-heading h2{margin:5px 0 18px;font:400 clamp(25px,4vw,36px) Georgia,serif}.band-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.band-button{min-height:116px;padding:18px;border:1px solid rgba(255,255,255,.1);border-radius:20px;background:#1b2019;color:#f5f1e8;text-align:left;cursor:pointer;transition:.22s}.band-button strong,.band-button span{display:block}.band-button strong{font-size:18px}.band-button span{margin-top:8px;color:#8e948a;font-size:11px}.band-button:hover,.band-button.active{transform:translateY(-2px);border-color:#8daf6e;background:#24301f;box-shadow:0 14px 34px #0005}.band-button.active strong{color:#c4ef99}.playback-control{display:flex;flex-direction:column;align-items:center;margin-top:clamp(36px,7vw,72px)}.playback-control>p{color:#9ca396;font-size:12px}.play-toggle{display:flex;align-items:center;justify-content:center;gap:12px;width:160px;height:64px;border:0;border-radius:999px;background:#b9e68c;color:#15200f;box-shadow:0 0 0 9px rgba(185,230,140,.07),0 18px 45px #0007;cursor:pointer}.play-toggle:hover{transform:scale(1.03)}.play-toggle.playing{background:#f1eee5}.play-symbol{font-size:14px}.playback-control small{margin-top:15px;color:#696e66;font-size:10px;text-transform:uppercase;letter-spacing:.12em}@media(max-width:760px){.band-grid{grid-template-columns:repeat(2,1fr)}.band-button:last-child{grid-column:1/-1}.page{padding-top:28px}}@media(max-width:430px){h1{font-size:44px}.band-button{min-height:92px;padding:14px}.binaural-panel{margin-top:30px}.playback-control{margin-top:34px}}'''
-    (root / "static/user.css").write_text(css.rstrip() + "\n" + SIMPLE_HOME_STYLES + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES + "\n/* single-home-v10 */\n" + CONTINUOUS_CHORD_STYLES + "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES + "\n" + AMBIENT_SYNTH_STYLES + "\n" + MOBILE_READABILITY_STYLES + "\n", encoding="utf-8")
+    (root / "static/user.css").write_text(css.rstrip() + "\n" + SIMPLE_HOME_STYLES + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES + "\n/* single-home-v10 */\n" + CONTINUOUS_CHORD_STYLES + "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES + "\n" + AMBIENT_SYNTH_STYLES + "\n" + BINAURAL_TUNING_STYLES + "\n" + MOBILE_READABILITY_STYLES + "\n", encoding="utf-8")
     (root / "static/custom_synth.js").write_text("window.ResonaCustomSynth = { version: 1, configure(engine) { engine.config.carrier = engine.config.ambient.droneFrequency; } };\n", encoding="utf-8")
     _ensure_default_navigation_icons(root)
     pages = {"home.html": default_home_page(), "advanced.html": default_advanced_page()}

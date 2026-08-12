@@ -9,6 +9,7 @@ Resona is an adaptive healing-music web application. It combines a procedural We
 - A simplified default Home page plus a full Advanced audio page, driven by each user's private `nav.json`
 - A sandbox-safe `window.ResonaFiles` API for persistent front-end text, uploads, folders, reads, moves, and deletes inside each user's private `data/` directory
 - Continuous binaural and colored-noise synthesis plus a six-layer ambient Web Audio synth with drone, harmonic pad, analog drift, weather texture, shimmer, felt accents, and a full spatial effects chain
+- Conflict-safe binaural tuning with mutually exclusive exact left/right ear frequencies or a symmetric beat-frequency difference
 - Atmosphere, tonal-centre, and accessible rotary controls, with a private browser-side LSTM chord generator that can conduct every pitched synth layer without a generation API
 - Voice or text Vibe Agent interface with validated HTML, CSS, JS, JSON, SVG, and Markdown writes
 - A fail-closed prompt safety review that rejects potentially harmful, illegal, abusive, privacy-invasive, or safeguard-evasion requests before snapshots or agent execution
