@@ -847,12 +847,52 @@ def test_prompt_safety_uses_provider_for_contextual_review(monkeypatch):
     assert "offensive" in decision.message
 
 
+def test_prompt_safety_classifies_clear_resona_work_locally_when_provider_is_unavailable(monkeypatch):
+    from resona.prompt_safety import review_agent_prompt
+
+    monkeypatch.setattr("resona.prompt_safety.safety_completion", lambda *_args: (_ for _ in ()).throw(AssertionError("benign Resona work should not need the provider")))
+    assert review_agent_prompt("Make the mobile page calmer and increase the volume slider text size").allowed is True
+
+
+def test_safety_completion_retries_without_json_mode_for_compatible_proxies(app, monkeypatch):
+    import requests
+    from resona.closeai import safety_completion
+
+    payloads = []
+
+    class Response:
+        def __init__(self, status_code, content=None):
+            self.status_code = status_code
+            self.content = content
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise requests.HTTPError("unsupported response_format")
+
+        def json(self):
+            return {"choices": [{"message": {"content": self.content}}]}
+
+    def fake_post(_url, **kwargs):
+        payloads.append(kwargs["json"])
+        return Response(400) if len(payloads) == 1 else Response(200, '```json\n{"allowed":true,"category":"safe"}\n```')
+
+    monkeypatch.setattr("resona.closeai.requests.post", fake_post)
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE settings SET value = 'sk-server-only' WHERE key = 'closeai_api_key'")
+        db.commit()
+        raw = safety_completion("Explain a potentially ambiguous request", API_KEY_PLACEHOLDER)
+    assert '"allowed":true' in raw
+    assert "response_format" in payloads[0]
+    assert "response_format" not in payloads[1]
+
+
 def test_prompt_safety_fails_closed_on_invalid_provider_decision(monkeypatch):
     from resona.prompt_safety import review_agent_prompt
 
     monkeypatch.setattr("resona.prompt_safety.safety_completion", lambda *_args: "not-json")
     try:
-        review_agent_prompt("Create a calm breathing timer")
+        review_agent_prompt("Process this unusual request")
         assert False, "invalid safety responses must fail closed"
     except RuntimeError as exc:
         assert "not executed" in str(exc)
