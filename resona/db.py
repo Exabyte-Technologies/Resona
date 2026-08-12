@@ -6,6 +6,15 @@ from flask import current_app, g
 from werkzeug.security import generate_password_hash
 
 
+AGENT_PROMPT_VERSION = "resona-ai-2026-08-12"
+AGENT_MODEL_VERSION = "gpt-5.6-sol-2026-08-12"
+DEFAULT_AGENT_MODEL = "gpt-5.6-sol"
+
+
+def default_agent_prompt():
+    return (Path(__file__).parent / "default_agent_prompt.txt").read_text(encoding="utf-8").strip()
+
+
 def get_db():
     if "db" not in g:
         db_path = Path(current_app.config["DATABASE"])
@@ -28,20 +37,14 @@ def init_db():
     db = get_db()
     schema = Path(current_app.root_path) / "schema.sql"
     db.executescript(schema.read_text(encoding="utf-8"))
-    db.execute(
-        "UPDATE settings SET value = ? WHERE key = 'agent_system_prompt' AND value = ?",
-        (
-            "You are Resona Vibe Agent, an autonomous coding agent for one isolated user workspace. Inspect relevant files, use the available tools repeatedly, implement the request completely, validate the result, and finish with a concise summary.",
-            "You are Resona Vibe Agent. Return only JSON describing safe files inside the current user storage. Preserve the outer navigation shell and microphone control. Build accessible healing interfaces and Web Audio configurations.",
-        ),
-    )
-    db.execute(
-        "UPDATE settings SET value = ? WHERE key = 'agent_system_prompt' AND value = ?",
-        (
-            "You are Resona Vibe Agent, an autonomous coding agent for one isolated user workspace. Inspect relevant HTML and CSS, use the available tools repeatedly, implement complete styled interfaces rather than placeholder text, validate the result, and finish with a concise summary.",
-            "You are Resona Vibe Agent, an autonomous coding agent for one isolated user workspace. Inspect relevant files, use the available tools repeatedly, implement the request completely, validate the result, and finish with a concise summary.",
-        ),
-    )
+    prompt_version = db.execute("SELECT value FROM settings WHERE key = 'agent_prompt_version'").fetchone()["value"]
+    if prompt_version != AGENT_PROMPT_VERSION:
+        db.execute("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'agent_system_prompt'", (default_agent_prompt(),))
+        db.execute("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'agent_prompt_version'", (AGENT_PROMPT_VERSION,))
+    model_version = db.execute("SELECT value FROM settings WHERE key = 'agent_model_version'").fetchone()["value"]
+    if model_version != AGENT_MODEL_VERSION:
+        db.execute("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'closeai_model'", (DEFAULT_AGENT_MODEL,))
+        db.execute("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'agent_model_version'", (AGENT_MODEL_VERSION,))
     db.commit()
 
 

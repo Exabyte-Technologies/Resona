@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 
 INSERT OR IGNORE INTO settings(key, value) VALUES (
     'agent_system_prompt',
-    'You are Resona Vibe Agent, an autonomous coding agent for one isolated user workspace. Inspect relevant HTML and CSS, use the available tools repeatedly, implement complete styled interfaces rather than placeholder text, validate the result, and finish with a concise summary.'
+    ''
 );
 INSERT OR IGNORE INTO settings(key, value) VALUES ('closeai_api_key', '');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('closeai_base_url', '');
@@ -61,3 +61,5 @@ INSERT OR IGNORE INTO settings(key, value) VALUES ('agent_max_steps', '');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('resend_api_key', '');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('resend_from_email', '');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('resend_from_name', '');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('agent_prompt_version', '');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('agent_model_version', '');

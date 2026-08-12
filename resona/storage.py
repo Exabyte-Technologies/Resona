@@ -14,7 +14,32 @@ storage_bp = Blueprint("storage", __name__, url_prefix="/storage")
 PAGE_BRIDGE = r'''<script data-resona-bridge>
 (() => {
   const send = (type, payload = {}) => parent.postMessage({ type, ...payload }, '*');
+  let fileRequestNumber = 0;
+  const pendingFileRequests = new Map();
+  const fileRequest = (action, payload = {}) => new Promise((resolve, reject) => {
+    const requestId = `file-${Date.now()}-${++fileRequestNumber}`;
+    const timer = setTimeout(() => { pendingFileRequests.delete(requestId); reject(new Error('Persistent file request timed out')); }, 30000);
+    pendingFileRequests.set(requestId, { resolve, reject, timer });
+    send('resona:files', { requestId, action, ...payload });
+  });
+  const blobToBase64 = async blob => {
+    const bytes = new Uint8Array(await blob.arrayBuffer()); let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+    return btoa(binary);
+  };
+  window.ResonaFiles = Object.freeze({
+    list: (path = '') => fileRequest('list', { path }),
+    read: (path, options = {}) => fileRequest('read', { path, encoding:options.encoding || 'text' }),
+    write: (path, content) => fileRequest('write', { path, content }),
+    upload: async (path, file) => fileRequest('upload', { path, content:await blobToBase64(file) }),
+    mkdir: path => fileRequest('mkdir', { path }),
+    move: (source, destination) => fileRequest('move', { source, destination }),
+    delete: path => fileRequest('delete', { path })
+  });
   const status = document.querySelector('[data-playback-status]');
+  document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => send('resona:audio', { action:'applyMode', mode:button.dataset.mode })));
+  document.querySelectorAll('[data-session-toggle]').forEach(button => button.addEventListener('click', () => send('resona:audio', { action:'toggleSession' })));
+  document.querySelectorAll('[data-master-volume]').forEach(control => control.addEventListener('input', () => { const output = control.parentElement.querySelector('output'); if (output) output.textContent = control.value + '%'; send('resona:audio', { action:'setMaster', value:control.value }); }));
   document.querySelectorAll('[data-band]').forEach(button => button.addEventListener('click', () => {
     document.querySelectorAll('[data-band]').forEach(option => {
       const selected = option === button;
@@ -47,7 +72,17 @@ PAGE_BRIDGE = r'''<script data-resona-bridge>
   window.addEventListener('message', event => {
     const data = event.data;
     if (!data || typeof data !== 'object') return;
-    if (data.type === 'resona:audio-state') {
+    if (data.type === 'resona:files-result') {
+      const pending = pendingFileRequests.get(data.requestId); if (!pending) return;
+      clearTimeout(pending.timer); pendingFileRequests.delete(data.requestId);
+      if (data.ok) pending.resolve(data); else pending.reject(new Error(data.error || 'Persistent file request failed'));
+    } else if (data.type === 'resona:audio-state') {
+      const sessionPlaying = Boolean(data.playing || data.ambientPlaying);
+      document.querySelectorAll('[data-session-toggle]').forEach(button => { button.classList.toggle('playing', sessionPlaying); button.setAttribute('aria-pressed', String(sessionPlaying)); const label = button.querySelector('strong'); if (label) label.textContent = sessionPlaying ? 'Pause' : 'Play'; });
+      document.querySelectorAll('[data-mode]').forEach(button => { const selected = button.dataset.mode === data.config?.mode; button.classList.toggle('active', selected); button.setAttribute('aria-pressed', String(selected)); });
+      document.querySelectorAll('[data-master-volume]').forEach(control => { const value = Number(data.config?.master); if (Number.isFinite(value)) { control.value = value; const output = control.parentElement.querySelector('output'); if (output) output.textContent = value + '%'; } });
+      document.querySelectorAll('[data-band]').forEach(button => { const selected = Number(button.dataset.band) === Number(data.config?.beat); button.classList.toggle('active', selected); button.setAttribute('aria-pressed', String(selected)); });
+      document.querySelectorAll('[data-ambient]').forEach(control => { const value = data.config?.ambient?.[control.dataset.ambient]; if (Number.isFinite(Number(value))) { control.value = value; const output = control.parentElement.querySelector('output'); if (output) output.textContent = value; } });
       document.querySelectorAll('[data-playback-toggle]').forEach(button => {
         button.classList.toggle('playing', data.playing);
         button.setAttribute('aria-pressed', String(data.playing));

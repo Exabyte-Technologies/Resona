@@ -196,11 +196,18 @@ def default_page(title, eyebrow, body, controls=""):
 </body></html>'''
 
 
+NAV_ICON_PATHS = {
+    "home": "M3 12h3l2-6 4 12 3-9 2 3h4",
+    "advanced": "M8 3v2m0 8v2M2 9h2m8 0h2M3.76 4.76l1.42 1.42m5.64 5.64 1.42 1.42m0-8.48-1.42 1.42m-5.64 5.64-1.42 1.42M8 6a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm8 5v1.5m0 7V21m-5-5h1.5m7 0H21m-8.54-3.54 1.06 1.06m4.96 4.96 1.06 1.06m0-7.08-1.06 1.06m-4.96 4.96-1.06 1.06M16 13.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z",
+}
+
+
 def default_navigation():
     return {
         "default_page": "pages/home.html",
         "nav_items": [
             {"id": "home", "label": "Home", "icon": "waves", "icon_path": "static/icons/home.svg", "target_html": "pages/home.html"},
+            {"id": "advanced", "label": "Advanced", "icon": "gears", "icon_path": "static/icons/advanced.svg", "target_html": "pages/advanced.html"},
         ],
     }
 
@@ -383,11 +390,41 @@ def _single_home_v12_page():
     return _single_home_v11_page().replace(marker, transition_card + marker, 1)
 
 
-def default_home_page():
+def default_advanced_page():
     return _single_home_v12_page().replace(
         'min="1" max="12" step="0.5" value="4" data-chord-duration',
         'min="2" max="120" step="1" value="4" data-chord-duration',
     )
+
+
+def default_home_page():
+    controls = '''<div class="simple-home-grid">
+<section class="session-card" aria-labelledby="session-title">
+  <div class="session-copy"><p>Now playing</p><h2 id="session-title">Your soundscape</h2><span>Headphones recommended</span></div>
+  <button class="session-toggle" data-session-toggle aria-pressed="false"><span class="session-button-icon" aria-hidden="true"></span><strong>Play</strong></button>
+  <section class="master-volume-subcard" aria-labelledby="simple-volume-title">
+    <div><span><strong id="simple-volume-title">Master volume</strong><small>All sound layers</small></span><output>70%</output></div>
+    <input type="range" min="0" max="100" value="70" aria-label="Master volume" data-master-volume>
+  </section>
+</section>
+<section class="mode-card" aria-labelledby="mode-title">
+  <div class="simple-card-heading"><p>Choose a mode</p><h2 id="mode-title">How do you want to feel?</h2></div>
+  <div class="mode-grid" role="group" aria-label="Soundscape mode">
+    <button data-mode="sleep" aria-pressed="false"><span class="mode-icon">☾</span><span><strong>Sleep</strong><small>Deep &amp; quiet</small></span></button>
+    <button class="active" data-mode="meditation" aria-pressed="true"><span class="mode-icon">◌</span><span><strong>Meditation</strong><small>Slow &amp; spacious</small></span></button>
+    <button data-mode="focus" aria-pressed="false"><span class="mode-icon">◇</span><span><strong>Focus</strong><small>Calm &amp; clear</small></span></button>
+    <button data-mode="awake" aria-pressed="false"><span class="mode-icon">✦</span><span><strong>Awake</strong><small>Bright &amp; active</small></span></button>
+  </div>
+  <p class="mode-note">Each mode tunes your binaural beat and ambient layers. Fine-tune everything in Advanced.</p>
+</section>
+</div>'''
+    return default_page("A calmer way to listen", "Resona", "Choose a mode, press play, and let the sound adapt around you.", controls)
+
+
+SIMPLE_HOME_STYLES = '''
+/* simplified-home-v1 */
+.simple-home-grid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(320px,.92fr);gap:18px;margin-top:clamp(34px,6vw,64px);align-items:stretch}.session-card,.mode-card{position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.09);border-radius:32px;box-shadow:0 26px 74px rgba(0,0,0,.24)}.session-card{display:grid;grid-template-columns:1fr auto;grid-template-rows:1fr auto;gap:28px;min-height:460px;padding:clamp(26px,4vw,42px);background:radial-gradient(circle at 82% 17%,rgba(185,230,140,.13),transparent 32%),linear-gradient(145deg,#20271d,#141914)}.session-copy p,.simple-card-heading p{margin:0;color:#91a084;font-size:9px;font-weight:800;letter-spacing:.17em;text-transform:uppercase}.session-copy h2,.simple-card-heading h2{margin:8px 0 0;font:400 clamp(29px,4vw,43px)/1.05 Georgia,serif;letter-spacing:-.035em}.session-copy span{display:block;margin-top:13px;color:#7e857a;font-size:10px}.session-toggle{align-self:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;width:150px;height:150px;border:0;border-radius:50%;background:#b9e68c;color:#15200f;box-shadow:0 0 0 14px rgba(185,230,140,.055),0 24px 55px rgba(0,0,0,.34);cursor:pointer;transition:transform .22s,background .22s}.session-toggle:hover{transform:scale(1.025)}.session-toggle.playing{background:#f2efe6}.session-toggle strong{font-size:11px;letter-spacing:.05em}.session-button-icon{width:0;height:0;margin-left:5px;border-top:12px solid transparent;border-bottom:12px solid transparent;border-left:18px solid currentColor}.session-toggle.playing .session-button-icon{width:18px;height:22px;margin:0;border:0;border-left:6px solid currentColor;border-right:6px solid currentColor}.master-volume-subcard{grid-column:1/-1;padding:18px 20px;border:1px solid rgba(255,255,255,.07);border-radius:21px;background:rgba(5,8,5,.28)}.master-volume-subcard>div{display:flex;align-items:center;justify-content:space-between;gap:16px}.master-volume-subcard span strong,.master-volume-subcard span small{display:block}.master-volume-subcard span strong{font-size:12px}.master-volume-subcard span small{margin-top:2px;color:#747c70;font-size:8px}.master-volume-subcard output{color:#c8eea3;font-size:11px;font-variant-numeric:tabular-nums}.master-volume-subcard input{width:100%;height:4px;margin-top:15px;accent-color:#b9e68c;cursor:pointer}.mode-card{min-height:460px;padding:clamp(26px,4vw,38px);background:radial-gradient(circle at 100% 0,rgba(184,216,244,.1),transparent 35%),linear-gradient(145deg,#1c2320,#141918)}.simple-card-heading h2{font-size:clamp(27px,3vw,36px)}.mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:27px}.mode-grid button{display:flex;align-items:center;gap:11px;min-height:84px;padding:14px;border:1px solid rgba(255,255,255,.07);border-radius:18px;background:rgba(5,8,7,.25);color:#f5f1e8;text-align:left;cursor:pointer;transition:.2s}.mode-grid button:hover,.mode-grid button.active{transform:translateY(-1px);border-color:#789763;background:#273121}.mode-grid button.active{box-shadow:inset 0 0 0 1px rgba(185,230,140,.16)}.mode-icon{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.06);color:#b9e68c;font-size:15px}.mode-grid strong,.mode-grid small{display:block}.mode-grid strong{font-size:12px}.mode-grid small{margin-top:3px;color:#7d8579;font-size:8px}.mode-note{margin:21px 2px 0;color:#737d78;font-size:9px;line-height:1.6}@media(max-width:840px){.simple-home-grid{grid-template-columns:1fr}.session-card,.mode-card{min-height:auto}}@media(max-width:520px){.simple-home-grid{margin-top:28px}.session-card{grid-template-columns:1fr;gap:25px;padding:23px;border-radius:25px}.session-toggle{justify-self:center;width:132px;height:132px}.mode-card{padding:23px;border-radius:25px}.mode-grid{grid-template-columns:1fr;margin-top:22px}.mode-grid button{min-height:68px}}
+'''
 
 
 SINGLE_HOME_STYLES = '''
@@ -430,6 +467,8 @@ def _ensure_single_home_styles(root):
         return
     css = css_path.read_text(encoding="utf-8")
     additions = ""
+    if "simplified-home-v1" not in css:
+        additions += "\n" + SIMPLE_HOME_STYLES
     if "single-home-v6" not in css:
         additions += "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES
     if "single-home-v7" not in css:
@@ -440,6 +479,14 @@ def _ensure_single_home_styles(root):
         additions += "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES
     if additions:
         css_path.write_text(css.rstrip() + additions + "\n", encoding="utf-8")
+
+
+def _ensure_default_navigation_icons(root):
+    icons = root / "static/icons"
+    icons.mkdir(parents=True, exist_ok=True)
+    for icon_name, path_data in NAV_ICON_PATHS.items():
+        svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="{path_data}"/></svg>'
+        (icons / f"{icon_name}.svg").write_text(svg, encoding="utf-8")
 
 
 def _legacy_home_page():
@@ -468,6 +515,26 @@ def migrate_legacy_default_workspace(username):
     items = navigation.get("nav_items", [])
     actual = [(item.get("id"), item.get("target_html")) for item in items if isinstance(item, dict)]
     current_home = home_path.read_text(encoding="utf-8")
+    advanced_defaults = (
+        default_advanced_page(), _single_home_v2_page(), _single_home_v3_page(),
+        _single_home_v4_page(), _single_home_v5_page(), _single_home_v6_page(), _single_home_v7_page(),
+        _single_home_v8_page(), _single_home_v9_page(), _single_home_v10_page(), _single_home_v11_page(),
+        _single_home_v12_page(),
+    )
+    if actual == [("home", "pages/home.html")] and current_home in (default_home_page(), *advanced_defaults):
+        home_path.write_text(default_home_page(), encoding="utf-8")
+        (root / "pages/advanced.html").write_text(default_advanced_page(), encoding="utf-8")
+        nav_path.write_text(json.dumps(default_navigation(), indent=2), encoding="utf-8")
+        _ensure_single_home_styles(root)
+        _ensure_default_navigation_icons(root)
+        return True
+    if actual == [("home", "pages/home.html"), ("advanced", "pages/advanced.html")]:
+        if current_home in advanced_defaults:
+            home_path.write_text(default_home_page(), encoding="utf-8")
+            (root / "pages/advanced.html").write_text(default_advanced_page(), encoding="utf-8")
+        _ensure_single_home_styles(root)
+        _ensure_default_navigation_icons(root)
+        return True
     if actual == [("home", "pages/home.html")] and current_home == default_home_page():
         _ensure_single_home_styles(root)
         return True
@@ -519,7 +586,9 @@ def migrate_legacy_default_workspace(username):
         return False
     nav_path.write_text(json.dumps(default_navigation(), indent=2), encoding="utf-8")
     home_path.write_text(default_home_page(), encoding="utf-8")
+    (root / "pages/advanced.html").write_text(default_advanced_page(), encoding="utf-8")
     _ensure_single_home_styles(root)
+    _ensure_default_navigation_icons(root)
     for name in ("mixer.html", "binaural.html", "noise.html", "history.html", "profile.html"):
         path = root / "pages" / name
         if path.exists():
@@ -529,7 +598,7 @@ def migrate_legacy_default_workspace(username):
 
 def initialize_user_storage(username):
     root = user_root(username)
-    for folder in ("memory", "pages", "static/icons", "snapshots"):
+    for folder in ("memory", "pages", "static/icons", "data", "snapshots"):
         (root / folder).mkdir(parents=True, exist_ok=True)
     nav = default_navigation()
     (root / "nav.json").write_text(json.dumps(nav, indent=2), encoding="utf-8")
@@ -537,13 +606,10 @@ def initialize_user_storage(username):
     (root / "memory/plan.md").write_text("# Vibe modification log\n\n", encoding="utf-8")
     (root / "memory/changelog.md").write_text("# Resona changelog\n\n", encoding="utf-8")
     css = '''*{box-sizing:border-box}html,body{min-height:100%;background:#121611}body{margin:0;color:#f5f1e8;font:500 16px/1.5 Inter,system-ui,sans-serif}.page{width:min(1040px,100%);margin:auto;padding:clamp(28px,6vw,72px) clamp(20px,5vw,54px) 150px}.eyebrow{margin:0;color:#b9e68c;text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:800}h1{font:600 clamp(42px,8vw,82px)/.98 Georgia,serif;letter-spacing:-.05em;margin:10px 0 14px}.intro{max-width:610px;margin:0;color:#b7b5ae}.binaural-panel{margin-top:clamp(34px,6vw,68px)}.panel-heading p{margin:0;color:#858b81;font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}.panel-heading h2{margin:5px 0 18px;font:400 clamp(25px,4vw,36px) Georgia,serif}.band-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.band-button{min-height:116px;padding:18px;border:1px solid rgba(255,255,255,.1);border-radius:20px;background:#1b2019;color:#f5f1e8;text-align:left;cursor:pointer;transition:.22s}.band-button strong,.band-button span{display:block}.band-button strong{font-size:18px}.band-button span{margin-top:8px;color:#8e948a;font-size:11px}.band-button:hover,.band-button.active{transform:translateY(-2px);border-color:#8daf6e;background:#24301f;box-shadow:0 14px 34px #0005}.band-button.active strong{color:#c4ef99}.playback-control{display:flex;flex-direction:column;align-items:center;margin-top:clamp(36px,7vw,72px)}.playback-control>p{color:#9ca396;font-size:12px}.play-toggle{display:flex;align-items:center;justify-content:center;gap:12px;width:160px;height:64px;border:0;border-radius:999px;background:#b9e68c;color:#15200f;box-shadow:0 0 0 9px rgba(185,230,140,.07),0 18px 45px #0007;cursor:pointer}.play-toggle:hover{transform:scale(1.03)}.play-toggle.playing{background:#f1eee5}.play-symbol{font-size:14px}.playback-control small{margin-top:15px;color:#696e66;font-size:10px;text-transform:uppercase;letter-spacing:.12em}@media(max-width:760px){.band-grid{grid-template-columns:repeat(2,1fr)}.band-button:last-child{grid-column:1/-1}.page{padding-top:28px}}@media(max-width:430px){h1{font-size:44px}.band-button{min-height:92px;padding:14px}.binaural-panel{margin-top:30px}.playback-control{margin-top:34px}}'''
-    (root / "static/user.css").write_text(css.rstrip() + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES + "\n/* single-home-v10 */\n" + CONTINUOUS_CHORD_STYLES + "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES + "\n", encoding="utf-8")
+    (root / "static/user.css").write_text(css.rstrip() + "\n" + SIMPLE_HOME_STYLES + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES + "\n/* single-home-v10 */\n" + CONTINUOUS_CHORD_STYLES + "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES + "\n", encoding="utf-8")
     (root / "static/custom_synth.js").write_text("window.ResonaCustomSynth = { version: 1, configure(engine) { engine.config.carrier = engine.config.ambient.droneFrequency; } };\n", encoding="utf-8")
-    icon_paths = {"home": "M3 12h3l2-6 4 12 3-9 2 3h4"}
-    for icon_name, path_data in icon_paths.items():
-        svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="{path_data}"/></svg>'
-        (root / "static/icons" / f"{icon_name}.svg").write_text(svg, encoding="utf-8")
-    pages = {"home.html": default_home_page()}
+    _ensure_default_navigation_icons(root)
+    pages = {"home.html": default_home_page(), "advanced.html": default_advanced_page()}
     for name, content in pages.items():
         (root / "pages" / name).write_text(content, encoding="utf-8")
     ensure_chord_model_assets(username)

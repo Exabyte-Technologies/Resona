@@ -5,7 +5,7 @@
   const chordModel = new window.ResonaChordModel(username);
   const PROVIDER_CREDENTIAL_PLACEHOLDER = '{{RESONA_SERVER_API_KEY}}';
   const api = (url, options = {}) => fetch(url, { ...options, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf, ...(options.headers || {}) } });
-  function icon(name) { const paths = { sparkles:'M12 2l1.4 5.1L18 9l-4.6 1.8L12 16l-1.4-5.2L6 9l4.6-1.9L12 2zm6 12l.8 2.4L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-1.6L18 14z',sliders:'M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6',waves:'M3 12h3l2-6 4 12 3-9 2 3h4', 'cloud-rain':'M7 18h10a4 4 0 0 0 0-8 6 6 0 0 0-11.5 1.5A3.5 3.5 0 0 0 7 18zm2 2-1 2m5-2-1 2m5-2-1 2',history:'M4 12a8 8 0 1 0 2-5.3L4 9m0-5v5h5m3-3v6l4 2',user:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9a7 7 0 0 1 14 0',circle:'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z' }; return `<svg viewBox="0 0 24 24"><path d="${paths[name] || paths.circle}"/></svg>`; }
+  function icon(name) { const paths = { sparkles:'M12 2l1.4 5.1L18 9l-4.6 1.8L12 16l-1.4-5.2L6 9l4.6-1.9L12 2zm6 12l.8 2.4L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-1.6L18 14z',sliders:'M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6',gears:'M8 3v2m0 8v2M2 9h2m8 0h2M3.76 4.76l1.42 1.42m5.64 5.64 1.42 1.42m0-8.48-1.42 1.42m-5.64 5.64-1.42 1.42M8 6a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm8 5v1.5m0 7V21m-5-5h1.5m7 0H21m-8.54-3.54 1.06 1.06m4.96 4.96 1.06 1.06m0-7.08-1.06 1.06m-4.96 4.96-1.06 1.06M16 13.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z',waves:'M3 12h3l2-6 4 12 3-9 2 3h4', 'cloud-rain':'M7 18h10a4 4 0 0 0 0-8 6 6 0 0 0-11.5 1.5A3.5 3.5 0 0 0 7 18zm2 2-1 2m5-2-1 2m5-2-1 2',history:'M4 12a8 8 0 1 0 2-5.3L4 9m0-5v5h5m3-3v6l4 2',user:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9a7 7 0 0 1 14 0',circle:'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z' }; return `<svg viewBox="0 0 24 24"><path d="${paths[name] || paths.circle}"/></svg>`; }
   document.querySelectorAll('.nav-icon').forEach(el => {
     if (el.dataset.iconPath) {
       const img = document.createElement('img');
@@ -16,6 +16,25 @@
   document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); button.classList.add('active'); loader.classList.add('show'); frame.src = `/storage/${encodeURIComponent(username)}/${button.dataset.page.split('/').map(encodeURIComponent).join('/')}`; }));
   const sendToPage = (type, payload = {}) => frame.contentWindow?.postMessage({ type, ...payload }, '*');
   const sendAudioState = () => sendToPage('resona:audio-state', { playing:window.resonaAudio.playing, ambientPlaying:window.resonaAudio.ambientPlaying, noisePlaying:window.resonaAudio.noisePlaying, chordProgressionPlaying:window.resonaAudio.chordProgressionPlaying, chordProgressionPaused:window.resonaAudio.chordProgressionPaused, chordProgressionIndex:window.resonaAudio.chordProgressionIndex, config:window.resonaAudio.config });
+  const modePresets = {
+    sleep:{ beat:2, droneFrequency:110, drone:72, pads:58, textures:42, melody:8, spatial:62 },
+    meditation:{ beat:6, droneFrequency:174, drone:58, pads:68, textures:30, melody:18, spatial:58 },
+    focus:{ beat:10, droneFrequency:220, drone:34, pads:48, textures:18, melody:36, spatial:32 },
+    awake:{ beat:18, droneFrequency:261, drone:22, pads:36, textures:14, melody:52, spatial:24 }
+  };
+  function applyMode(name) {
+    const preset = modePresets[name]; if (!preset) return;
+    window.resonaAudio.config.mode = name;
+    window.resonaAudio.setBeat(preset.beat); window.resonaAudio.setDroneFrequency(preset.droneFrequency);
+    ['drone','pads','textures','melody','spatial'].forEach(key => window.resonaAudio.setAmbient(key, preset[key]));
+    window.resonaAudio.notifyState();
+  }
+  function toggleSession() {
+    const active = window.resonaAudio.playing || window.resonaAudio.ambientPlaying;
+    if (active) { if (window.resonaAudio.playing) window.resonaAudio.stop(); if (window.resonaAudio.ambientPlaying) window.resonaAudio.stopAmbient(); }
+    else { window.resonaAudio.start(); window.resonaAudio.startAmbient(); }
+    window.resonaAudio.notifyState();
+  }
   const chordPipeline = { enabled:false, token:0, options:null, playing:null, ready:[], generating:null, nextSetNumber:0 };
   const setLabel = number => { let value = number + 1, label = ''; while (value > 0) { value -= 1; label = String.fromCharCode(65 + value % 26) + label; value = Math.floor(value / 26); } return label; };
   const sendChordPipeline = () => sendToPage('resona:chord-pipeline', { enabled:chordPipeline.enabled, playing:chordPipeline.playing?.label || null, ready:chordPipeline.ready.map(set => set.label), generating:chordPipeline.generating?.label || null });
@@ -77,8 +96,18 @@
   window.addEventListener('message', async event => {
     if (event.source !== frame.contentWindow || !event.data || typeof event.data !== 'object') return;
     const data = event.data;
-    if (data.type === 'resona:audio') {
+    if (data.type === 'resona:files') {
+      const { requestId, type, ...payload } = data;
+      try {
+        const response = await api('/player/api/files', { method:'POST', body:JSON.stringify(payload) });
+        const result = await response.json();
+        sendToPage('resona:files-result', { requestId, ...result, ok:response.ok && result.ok });
+      } catch (error) { sendToPage('resona:files-result', { requestId, ok:false, error:error.message }); }
+    } else if (data.type === 'resona:audio') {
       if (data.action === 'toggle') window.resonaAudio.toggle();
+      else if (data.action === 'toggleSession') toggleSession();
+      else if (data.action === 'applyMode') applyMode(data.mode);
+      else if (data.action === 'setMaster' && Number.isFinite(Number(data.value))) window.resonaAudio.setMaster(data.value);
       else if (data.action === 'setBeat' && Number.isFinite(Number(data.value))) window.resonaAudio.setBeat(Math.max(.1, Math.min(100, Number(data.value))));
       else if (data.action === 'setNoise' && ['white','pink','brown','rain','ocean','forest'].includes(data.value)) { const restartsNoise = window.resonaAudio.noisePlaying; window.resonaAudio.setNoise(data.value); if (restartsNoise) setTimeout(sendAudioState, 950); }
       else if (data.action === 'setLayer' && typeof data.name === 'string' && Number.isFinite(Number(data.value))) window.resonaAudio.setLayer(data.name, Math.max(0, Math.min(100, Number(data.value))));

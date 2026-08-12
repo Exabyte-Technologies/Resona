@@ -13,7 +13,7 @@
       this.nodes = [];
       this.ambientNodes = [];
       this.noiseNodes = [];
-      this.config = { carrier: 200, beat: 6, noise: 'pink', master: .34, volumes: { binaural: 50, ambient: 50, noise: 50 }, layers: { pad: .72, flute: .38, strings: .51, bells: .24 }, ambient: { droneFrequency: 200, drone: 48, pads: 64, textures: 32, melody: 24, spatial: 46, chordProgression:[], chordDuration:4, chordTransition:0, binauralChordTransition:0 } };
+      this.config = { carrier: 200, beat: 6, noise: 'pink', master: 70, mode: 'meditation', volumes: { binaural: 50, ambient: 50, noise: 50 }, layers: { pad: .72, flute: .38, strings: .51, bells: .24 }, ambient: { droneFrequency: 200, drone: 48, pads: 64, textures: 32, melody: 24, spatial: 46, chordProgression:[], chordDuration:4, chordTransition:0, binauralChordTransition:0 } };
       if (window.ResonaCustomSynth && typeof window.ResonaCustomSynth.configure === 'function') window.ResonaCustomSynth.configure(this);
       this.config.ambient.droneFrequency = Math.max(40, Math.min(400, Number(this.config.ambient.droneFrequency) || 200));
       this.config.carrier = this.config.ambient.droneFrequency;
@@ -36,7 +36,7 @@
     }
     start() {
       if (this.playing) return;
-      const ctx = this.ensureContext(), master = ctx.createGain(); master.gain.setValueAtTime(.0001, ctx.currentTime); master.gain.exponentialRampToValueAtTime(Math.max(.0001, this.config.master * this.config.volumes.binaural / 50), ctx.currentTime + 1.4); master.connect(ctx.destination);
+      const ctx = this.ensureContext(), master = ctx.createGain(); master.gain.setValueAtTime(.0001, ctx.currentTime); master.gain.exponentialRampToValueAtTime(Math.max(.0001, .5 * this.config.master / 100 * this.config.volumes.binaural / 50), ctx.currentTime + 1.4); master.connect(ctx.destination);
       const left = ctx.createOscillator(), right = ctx.createOscillator(), merger = ctx.createChannelMerger(2), lGain = ctx.createGain(), rGain = ctx.createGain();
       const pair = this.binauralPair();
       left.type = right.type = 'sine'; left.frequency.value = pair.left; right.frequency.value = pair.right; lGain.gain.value = rGain.gain.value = .16; left.connect(lGain).connect(merger, 0, 0); right.connect(rGain).connect(merger, 0, 1); merger.connect(master); left.start(); right.start();
@@ -63,14 +63,21 @@
     setChordTransition(value) { this.config.ambient.chordTransition = Math.max(0, Math.min(4, Number(value) || 0)); }
     setBinauralChordTransition(value) { this.config.ambient.binauralChordTransition = Math.max(0, Math.min(4, Number(value) || 0)); }
     setLayer(name, value) { if (name in this.config.layers) this.config.layers[name] = Number(value) / 100; }
-    setVolume(name, value) { if (!(name in this.config.volumes)) return; const level = Math.max(0, Math.min(100, Number(value))); this.config.volumes[name] = level; const now = this.context?.currentTime || 0; if (name === 'binaural' && this.playing) this.master.gain.setTargetAtTime(this.config.master * level / 50, now, .04); else if (name === 'ambient' && this.ambientPlaying) this.ambientOutput.gain.setTargetAtTime(.42 * level / 50, now, .08); else if (name === 'noise' && this.noisePlaying) { const noiseLevel = .20 * level / 50; this.noiseOutput.gain.setTargetAtTime(noiseLevel, now, .06); this.noiseLfoDepth.gain.setTargetAtTime(noiseLevel * this.noiseLfoRatio, now, .08); } }
+    setVolume(name, value) { if (!(name in this.config.volumes)) return; const level = Math.max(0, Math.min(100, Number(value))); this.config.volumes[name] = level; this.applyOutputLevels(); }
+    setMaster(value) { this.config.master = Math.max(0, Math.min(100, Number(value))); this.applyOutputLevels(); this.notifyState(); }
+    applyOutputLevels() {
+      const now = this.context?.currentTime || 0, scale = this.config.master / 100;
+      if (this.playing) this.master.gain.setTargetAtTime(.5 * scale * this.config.volumes.binaural / 50, now, .04);
+      if (this.ambientPlaying) this.ambientOutput.gain.setTargetAtTime(.6 * scale * this.config.volumes.ambient / 50, now, .08);
+      if (this.noisePlaying) { const noiseLevel = .286 * scale * this.config.volumes.noise / 50; this.noiseOutput.gain.setTargetAtTime(noiseLevel, now, .06); this.noiseLfoDepth.gain.setTargetAtTime(noiseLevel * this.noiseLfoRatio, now, .08); }
+    }
     setNoise(name) { this.config.noise = name; if (this.noisePlaying) { this.stopNoise(); setTimeout(() => this.startNoise(), 850); } }
     startNoise() {
       if (this.noisePlaying) return;
       const ctx = this.ensureContext(), source = this.createNoise(ctx, this.config.noise), filter = ctx.createBiquadFilter(), output = ctx.createGain(), lfo = ctx.createOscillator(), lfoDepth = ctx.createGain();
       const settings = { white:['allpass',1200,.01], pink:['lowpass',3200,.03], brown:['lowpass',900,.025], rain:['highpass',900,.12], ocean:['lowpass',650,.075], forest:['bandpass',1750,.055] }[this.config.noise] || ['allpass',1200,.01];
       filter.type = settings[0]; filter.frequency.value = settings[1]; filter.Q.value = this.config.noise === 'forest' ? .55 : .2;
-      const noiseLevel = .20 * this.config.volumes.noise / 50, lfoRatio = this.config.noise === 'ocean' ? .32 : this.config.noise === 'rain' ? .12 : .06;
+      const noiseLevel = .286 * this.config.master / 100 * this.config.volumes.noise / 50, lfoRatio = this.config.noise === 'ocean' ? .32 : this.config.noise === 'rain' ? .12 : .06;
       output.gain.setValueAtTime(.0001, ctx.currentTime); output.gain.exponentialRampToValueAtTime(Math.max(.0001, noiseLevel), ctx.currentTime + 1.2); output.connect(ctx.destination);
       lfo.frequency.value = settings[2]; lfoDepth.gain.value = noiseLevel * lfoRatio; lfo.connect(lfoDepth).connect(output.gain); source.connect(filter).connect(output); source.start(); lfo.start();
       this.noiseNodes = [source, filter, lfo, lfoDepth, output]; this.noiseOutput = output; this.noiseLfoDepth = lfoDepth; this.noiseLfoRatio = lfoRatio; this.noisePlaying = true;
@@ -170,7 +177,7 @@
     startAmbient() {
       if (this.ambientPlaying) return;
       const ctx = this.ensureContext(), output = ctx.createGain(), bus = ctx.createGain();
-      output.gain.setValueAtTime(.0001, ctx.currentTime); output.gain.exponentialRampToValueAtTime(Math.max(.0001, .42 * this.config.volumes.ambient / 50), ctx.currentTime + 2.4); output.connect(ctx.destination);
+      output.gain.setValueAtTime(.0001, ctx.currentTime); output.gain.exponentialRampToValueAtTime(Math.max(.0001, .6 * this.config.master / 100 * this.config.volumes.ambient / 50), ctx.currentTime + 2.4); output.connect(ctx.destination);
       const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : ctx.createGain(), delay = ctx.createDelay(2), wet = ctx.createGain(), feedback = ctx.createGain();
       delay.delayTime.value = .22 + this.config.ambient.spatial / 180; wet.gain.value = .28 * this.config.ambient.spatial / 100; feedback.gain.value = .13 + .22 * this.config.ambient.spatial / 100;
       bus.connect(panner); panner.connect(output); panner.connect(delay); delay.connect(wet).connect(output); delay.connect(feedback).connect(delay);

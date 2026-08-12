@@ -5,6 +5,7 @@ from flask import Blueprint, abort, current_app, g, jsonify, request
 from .agent_runtime import run_agent, trace_agent_debug
 from .closeai import API_KEY_PLACEHOLDER
 from .db import get_db
+from .prompt_safety import review_agent_prompt
 from .security import login_required, require_csrf
 from .user_storage import create_snapshot, reset_user_ui, restore_snapshot, safe_path, write_user_file
 
@@ -47,6 +48,20 @@ def modify():
     db = get_db()
     run = db.execute("INSERT INTO agent_runs(user_id, prompt, status) VALUES (?, ?, 'running')", (g.user["id"], prompt))
     db.commit()
+    try:
+        safety = review_agent_prompt(prompt, credential)
+    except Exception as exc:
+        message = "The safety review is unavailable, so this request was not executed. Please try again later."
+        db.execute("UPDATE agent_runs SET summary = ?, status = 'failed' WHERE id = ?", (message, run.lastrowid))
+        db.commit()
+        trace_agent_debug("safety_review_failed", run_id=run.lastrowid, username=g.user["username"], error=f"{type(exc).__name__}: {exc}")
+        current_app.logger.warning("Agent safety review failed: %s", exc)
+        return jsonify({"ok": False, "rejected": True, "error": message, "snapshot": None}), 503
+    if not safety.allowed:
+        db.execute("UPDATE agent_runs SET summary = ?, status = 'rejected' WHERE id = ?", (safety.message, run.lastrowid))
+        db.commit()
+        trace_agent_debug("request_rejected", run_id=run.lastrowid, username=g.user["username"], category=safety.category)
+        return jsonify({"ok": False, "rejected": True, "category": safety.category, "error": safety.message, "snapshot": None}), 422
     trace_agent_debug("request_received", run_id=run.lastrowid, username=g.user["username"], user_prompt=prompt)
     snapshot = None
     try:
