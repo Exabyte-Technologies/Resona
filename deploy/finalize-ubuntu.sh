@@ -4,20 +4,27 @@ set -Eeuo pipefail
 deploy_user="${1:?deploy user is required}"
 app_dir="${2:?application directory is required}"
 uploaded_env="${3:?uploaded environment file is required}"
-letsencrypt_email="${4:?Let's Encrypt registration email is required}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "finalize-ubuntu.sh must run with sudo" >&2
   exit 1
 fi
 
-required_env=(SECRET_KEY DATABASE_PATH RESONA_STORAGE_ROOT RESONA_USER_QUOTA_BYTES ADMIN_USERNAME ADMIN_PASSWORD CLOSEAI_BASE_URL CLOSEAI_API_KEY CLOSEAI_MODEL PUBLIC_BASE_URL SESSION_COOKIE_SECURE)
+required_env=(SECRET_KEY DATABASE_PATH RESONA_STORAGE_ROOT RESONA_USER_QUOTA_BYTES ADMIN_USERNAME ADMIN_PASSWORD CLOSEAI_BASE_URL CLOSEAI_API_KEY CLOSEAI_MODEL LETSENCRYPT_EMAIL PUBLIC_BASE_URL SESSION_COOKIE_SECURE)
 for name in "${required_env[@]}"; do
   if ! grep -q "^${name}=" "$uploaded_env"; then
     echo "The uploaded environment is missing $name" >&2
     exit 1
   fi
 done
+
+letsencrypt_email="$(grep '^LETSENCRYPT_EMAIL=' "$uploaded_env" | cut -d= -f2-)"
+letsencrypt_email="${letsencrypt_email#\"}"
+letsencrypt_email="${letsencrypt_email%\"}"
+if [[ ! "$letsencrypt_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+  echo "The uploaded environment contains an invalid LETSENCRYPT_EMAIL" >&2
+  exit 1
+fi
 
 install -m 0600 -o "$deploy_user" -g "$deploy_user" "$uploaded_env" "$app_dir/.env"
 rm -f "$uploaded_env"

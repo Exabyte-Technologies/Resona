@@ -87,4 +87,4 @@ jobs:
 
       - name: Install dependencies and restart services
         run: |
-          ssh "$DEPLOY_USER@$DEPLOY_HOST" sudo bash "$APP_DIR/deploy/finalize-ubuntu.sh" "$DEPLOY_USER" "$APP_DIR" /tmp/resona-production.env "$LETSENCRYPT_EMAIL"
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" sudo bash -s -- "$DEPLOY_USER" "$APP_DIR" /tmp/resona-production.env < deploy/finalize-ubuntu.sh

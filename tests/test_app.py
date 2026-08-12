@@ -73,6 +73,7 @@ def test_production_deployment_preserves_instance_and_uses_expected_host():
     rendered_env = (root / "deploy/render_env.py").read_text()
     assert '"PUBLIC_BASE_URL": "https://resona.neuorise.com"' in rendered_env
     assert '"SESSION_COOKIE_SECURE": "1"' in rendered_env
+    assert '"LETSENCRYPT_EMAIL"' in rendered_env
 
 
 def test_registration_creates_isolated_default_workspace(app, registered):

@@ -8,6 +8,7 @@ REQUIRED = (
     "ADMIN_USERNAME",
     "ADMIN_PASSWORD",
     "CLOSEAI_API_KEY",
+    "LETSENCRYPT_EMAIL",
 )
 
 
@@ -33,6 +34,7 @@ def main():
         "CLOSEAI_BASE_URL": "https://api.openai-proxy.org",
         "CLOSEAI_API_KEY": os.environ["CLOSEAI_API_KEY"],
         "CLOSEAI_MODEL": "gpt-5.6-sol",
+        "LETSENCRYPT_EMAIL": os.environ["LETSENCRYPT_EMAIL"],
         "PUBLIC_BASE_URL": "https://resona.neuorise.com",
         "SESSION_COOKIE_SECURE": "1",
     }
