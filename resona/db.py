@@ -72,8 +72,8 @@ def sync_environment_admin():
     email = current_app.config.get("ADMIN_EMAIL", "").strip().lower() or f"{username}@resona.local"
     db = get_db()
     db.execute(
-        "INSERT INTO users (username, email, password_hash, is_admin) VALUES (?, ?, ?, 1) "
-        "ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, is_admin=1",
+        "INSERT INTO users (username, email, email_verified_at, password_hash, is_admin) VALUES (?, ?, CURRENT_TIMESTAMP, ?, 1) "
+        "ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, email_verified_at=CURRENT_TIMESTAMP, is_admin=1",
         (username, email, generate_password_hash(password, method="pbkdf2:sha256:600000")),
     )
     db.commit()
@@ -95,8 +95,8 @@ def init_db_command():
 def create_admin_command(username, email, password):
     db = get_db()
     db.execute(
-        "INSERT INTO users (username, email, password_hash, is_admin) VALUES (?, ?, ?, 1) "
-        "ON CONFLICT(username) DO UPDATE SET email=excluded.email, password_hash=excluded.password_hash, is_admin=1",
+        "INSERT INTO users (username, email, email_verified_at, password_hash, is_admin) VALUES (?, ?, CURRENT_TIMESTAMP, ?, 1) "
+        "ON CONFLICT(username) DO UPDATE SET email=excluded.email, password_hash=excluded.password_hash, email_verified_at=CURRENT_TIMESTAMP, is_admin=1",
         (username.strip().lower(), email.strip().lower(), generate_password_hash(password, method="pbkdf2:sha256:600000")),
     )
     db.commit()

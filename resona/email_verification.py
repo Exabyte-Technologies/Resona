@@ -1,4 +1,5 @@
 import hashlib
+import math
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -6,6 +7,23 @@ from flask import current_app, url_for
 
 from .db import get_db
 from .resend import resend_is_configured, send_email_verification_email
+
+
+EMAIL_VERIFICATION_RESEND_SECONDS = 60
+
+
+def verification_resend_wait(user_id):
+    row = get_db().execute(
+        "SELECT created_at FROM email_verifications WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    if not row:
+        return 0
+    created_at = datetime.fromisoformat(row["created_at"])
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    elapsed = (datetime.now(timezone.utc) - created_at).total_seconds()
+    return max(0, math.ceil(EMAIL_VERIFICATION_RESEND_SECONDS - elapsed))
 
 
 def issue_email_verification(user_id, display_name, email, purpose):

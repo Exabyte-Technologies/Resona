@@ -7,7 +7,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db
 from .captcha import require_captcha
-from .email_verification import issue_email_verification, verification_record
+from .email_verification import issue_email_verification, verification_record, verification_resend_wait
 from .resend import resend_is_configured, send_password_reset_email, send_welcome_email
 from .security import USERNAME_RE, login_required, require_csrf
 from .user_storage import initialize_user_storage
@@ -73,8 +73,12 @@ def login():
         ).fetchone()
         if user and check_password_hash(user["password_hash"], request.form.get("password", "")):
             if not user["email_verified_at"]:
-                flash("Verify your email before signing in. Check your inbox for the verification link.", "error")
-                return render_template("auth/login.html"), 403
+                session["pending_verification_user_id"] = user["id"]
+                return render_template(
+                    "auth/login.html",
+                    verification_pending=True,
+                    resend_wait=verification_resend_wait(user["id"]),
+                ), 403
             session.clear()
             session["user_id"] = user["id"]
             session["csrf_token"] = secrets.token_urlsafe(32)
@@ -84,6 +88,53 @@ def login():
             return redirect(destination)
         flash("The username or password doesn't match.", "error")
     return render_template("auth/login.html")
+
+
+@auth_bp.post("/resend-verification")
+def resend_verification():
+    require_csrf()
+    user_id = session.get("pending_verification_user_id")
+    user = get_db().execute(
+        "SELECT id, username, display_name, email, email_verified_at FROM users WHERE id = ?",
+        (user_id,),
+    ).fetchone() if user_id else None
+    if not user or user["email_verified_at"]:
+        session.pop("pending_verification_user_id", None)
+        flash("Sign in again to request a verification email.", "error")
+        return redirect(url_for("auth.login"))
+
+    wait = verification_resend_wait(user["id"])
+    if wait:
+        return render_template(
+            "auth/login.html",
+            verification_pending=True,
+            resend_wait=wait,
+            verification_feedback=f"Please wait {wait} seconds before requesting another verification email.",
+        ), 429
+
+    db = get_db()
+    try:
+        token = issue_email_verification(
+            user["id"], user["display_name"] or user["username"], user["email"], "registration"
+        )
+        db.commit()
+        if current_app.testing and not resend_is_configured():
+            session["testing_verification_token"] = token
+        return render_template(
+            "auth/login.html",
+            verification_pending=True,
+            resend_wait=60,
+            verification_feedback="A new verification link has been sent. Check your inbox.",
+        )
+    except Exception:
+        db.rollback()
+        current_app.logger.exception("Could not resend the verification email for user %s", user["username"])
+        return render_template(
+            "auth/login.html",
+            verification_pending=True,
+            resend_wait=0,
+            verification_feedback="The verification email could not be sent. Please try again later.",
+        ), 503
 
 
 @auth_bp.get("/verify-email/<token>")
@@ -100,6 +151,8 @@ def verify_email(token):
             db.execute("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP WHERE id = ? AND email = ?", (row["user_id"], row["email"]))
         db.execute("UPDATE email_verifications SET used_at = CURRENT_TIMESTAMP WHERE id = ?", (row["id"],))
         db.commit()
+        if session.get("pending_verification_user_id") == row["user_id"]:
+            session.pop("pending_verification_user_id", None)
         if row["purpose"] == "registration" and resend_is_configured():
             user = db.execute("SELECT username, display_name FROM users WHERE id = ?", (row["user_id"],)).fetchone()
             try:

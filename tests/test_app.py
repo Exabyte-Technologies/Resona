@@ -184,6 +184,9 @@ def test_registration_requires_email_verification_before_login_and_exposes_serve
     })
     assert denied.status_code == 403
     assert b"Verify your email before signing in" in denied.data
+    assert b'role="dialog"' in denied.data
+    assert b"Resend verification email" in denied.data
+    assert b'action="/auth/resend-verification"' in denied.data
 
     response = client.get(f"/auth/verify-email/{token}")
     assert response.status_code == 302
@@ -200,6 +203,58 @@ def test_registration_requires_email_verification_before_login_and_exposes_serve
     assert b'id="account-button"' in player.data
     assert b'id="account-dialog"' in player.data
     assert b"cannot be changed by Resona AI" in player.data
+
+
+def test_login_verification_resend_is_limited_to_once_per_minute(app, client, captcha):
+    client.get("/auth/register")
+    client.post("/auth/register", data={
+        "csrf_token": session_csrf(client),
+        "cap-token": captcha(),
+        "display_name": "Cooldown Listener",
+        "username": "cooldown_listener",
+        "email": "cooldown@example.com",
+        "password": "healing-sound-123",
+    })
+    with client.session_transaction() as session:
+        first_token = session["testing_verification_token"]
+
+    client.get("/auth/login")
+    denied = client.post("/auth/login", data={
+        "csrf_token": session_csrf(client),
+        "cap-token": captcha(),
+        "identity": "cooldown_listener",
+        "password": "healing-sound-123",
+    })
+    assert denied.status_code == 403
+
+    limited = client.post("/auth/resend-verification", data={"csrf_token": session_csrf(client)})
+    assert limited.status_code == 429
+    assert b"Please wait" in limited.data
+    with app.app_context():
+        db = get_db()
+        assert db.execute("SELECT COUNT(*) AS count FROM email_verifications").fetchone()["count"] == 1
+        db.execute("UPDATE email_verifications SET created_at = datetime('now', '-2 minutes')")
+        db.commit()
+
+    sent = client.post("/auth/resend-verification", data={"csrf_token": session_csrf(client)})
+    assert sent.status_code == 200
+    assert b"A new verification link has been sent" in sent.data
+    with client.session_transaction() as session:
+        assert session["testing_verification_token"] != first_token
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) AS count FROM email_verifications").fetchone()["count"] == 2
+
+    limited_again = client.post("/auth/resend-verification", data={"csrf_token": session_csrf(client)})
+    assert limited_again.status_code == 429
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) AS count FROM email_verifications").fetchone()["count"] == 2
+
+
+def test_verification_resend_requires_a_password_authenticated_pending_user(client):
+    client.get("/auth/login")
+    response = client.post("/auth/resend-verification", data={"csrf_token": session_csrf(client)})
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/auth/login")
 
 
 def test_account_updates_display_name_password_and_verifies_new_email(app, registered, captcha):
@@ -1342,6 +1397,7 @@ def test_admin_can_create_regular_user_with_private_workspace(app, client):
     with app.app_context():
         user = get_db().execute("SELECT * FROM users WHERE username = 'new_listener'").fetchone()
         assert user and user["is_admin"] == 0
+        assert user["email_verified_at"]
         assert check_password_hash(user["password_hash"], "temporary-password")
         assert user_root("new_listener").is_dir()
         assert safe_path("new_listener", "nav.json").is_file()

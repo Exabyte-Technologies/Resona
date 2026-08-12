@@ -88,7 +88,7 @@ def create_user():
     workspace_created = False
     try:
         cursor = db.execute(
-            "INSERT INTO users(username, email, password_hash, is_admin) VALUES (?, ?, ?, 0)",
+            "INSERT INTO users(username, email, email_verified_at, password_hash, is_admin) VALUES (?, ?, CURRENT_TIMESTAMP, ?, 0)",
             (username, email, generate_password_hash(password, method="pbkdf2:sha256:600000")),
         )
         initialize_user_storage(username)
@@ -302,7 +302,7 @@ def add_admin():
         flash("Enter a valid username, email, and password of at least 10 characters.", "error")
     else:
         db = get_db()
-        cursor = db.execute("INSERT INTO users(username, email, password_hash, is_admin) VALUES (?, ?, ?, 1)", (username, email, generate_password_hash(password, method="pbkdf2:sha256:600000")))
+        cursor = db.execute("INSERT INTO users(username, email, email_verified_at, password_hash, is_admin) VALUES (?, ?, CURRENT_TIMESTAMP, ?, 1)", (username, email, generate_password_hash(password, method="pbkdf2:sha256:600000")))
         db.commit()
         initialize_user_storage(username)
         flash("Admin created.", "success")

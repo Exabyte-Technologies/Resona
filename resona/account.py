@@ -5,7 +5,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .captcha import validate_captcha
 from .db import get_db
-from .email_verification import issue_email_verification
+from .email_verification import issue_email_verification, verification_resend_wait
 from .security import login_required, require_csrf
 
 
@@ -49,6 +49,9 @@ def update_settings():
     user = db.execute("SELECT * FROM users WHERE id = ?", (g.user["id"],)).fetchone()
 
     if action == "resend_verification":
+        wait = verification_resend_wait(user["id"])
+        if wait:
+            return _response(f"Please wait {wait} seconds before requesting another verification email.", False, 429)
         try:
             token = issue_email_verification(user["id"], user["display_name"] or user["username"], user["email"], "registration")
             db.commit()
