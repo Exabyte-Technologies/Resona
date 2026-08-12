@@ -16,7 +16,63 @@
   document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); button.classList.add('active'); loader.classList.add('show'); frame.src = `/storage/${encodeURIComponent(username)}/${button.dataset.page.split('/').map(encodeURIComponent).join('/')}`; }));
   const sendToPage = (type, payload = {}) => frame.contentWindow?.postMessage({ type, ...payload }, '*');
   const sendAudioState = () => sendToPage('resona:audio-state', { playing:window.resonaAudio.playing, ambientPlaying:window.resonaAudio.ambientPlaying, noisePlaying:window.resonaAudio.noisePlaying, chordProgressionPlaying:window.resonaAudio.chordProgressionPlaying, chordProgressionPaused:window.resonaAudio.chordProgressionPaused, chordProgressionIndex:window.resonaAudio.chordProgressionIndex, config:window.resonaAudio.config });
-  frame.addEventListener('load', () => { loader.classList.remove('show'); sendAudioState(); });
+  const chordPipeline = { enabled:false, token:0, options:null, playing:null, ready:[], generating:null, nextSetNumber:0 };
+  const setLabel = number => { let value = number + 1, label = ''; while (value > 0) { value -= 1; label = String.fromCharCode(65 + value % 26) + label; value = Math.floor(value / 26); } return label; };
+  const sendChordPipeline = () => sendToPage('resona:chord-pipeline', { enabled:chordPipeline.enabled, playing:chordPipeline.playing?.label || null, ready:chordPipeline.ready.map(set => set.label), generating:chordPipeline.generating?.label || null });
+  const resetChordPipeline = enabled => { chordPipeline.token += 1; chordPipeline.enabled = enabled; chordPipeline.options = null; chordPipeline.playing = null; chordPipeline.ready = []; chordPipeline.generating = null; chordPipeline.nextSetNumber = 0; sendChordPipeline(); };
+  const makeChordSet = chords => ({ label:setLabel(chordPipeline.nextSetNumber++), chords });
+  async function generateChordSet(options, previous = null) {
+    if (!previous?.length) return chordModel.generate(options);
+    const generated = await chordModel.generate({ ...options, seedChords:[previous[previous.length - 1]], length:options.length + 1 });
+    return generated.slice(1, options.length + 1);
+  }
+  function generateAhead(previous) {
+    if (!chordPipeline.enabled || chordPipeline.generating || !chordPipeline.options) return;
+    const token = chordPipeline.token, label = setLabel(chordPipeline.nextSetNumber);
+    chordPipeline.generating = { label }; sendChordPipeline();
+    setTimeout(async () => {
+      try {
+        const chords = await generateChordSet(chordPipeline.options, previous);
+        if (!chordPipeline.enabled || token !== chordPipeline.token) return;
+        chordPipeline.ready.push(makeChordSet(chords)); chordPipeline.generating = null; sendChordPipeline();
+      } catch (error) {
+        if (token !== chordPipeline.token) return;
+        chordPipeline.generating = null; sendChordPipeline(); sendToPage('resona:chord-status', { status:'error', message:`Continuous generation paused: ${error.message}` });
+      }
+    }, 0);
+  }
+  async function generateProgression(data) {
+    const continuous = Boolean(data.continuous), token = chordPipeline.token + 1;
+    resetChordPipeline(continuous); chordPipeline.token = token;
+    const options = { seedChords:Array.isArray(data.seedChords) ? data.seedChords : [], length:Math.max(2, Math.min(32, Number(data.length) || 8)), temperature:data.temperature, topK:data.topK, greedy:data.greedy };
+    chordPipeline.options = options;
+    sendToPage('resona:chord-status', { status:'loading', message:continuous ? 'Preparing playing and ready chord sets…' : 'Loading your private model…' });
+    try {
+      const firstChords = await generateChordSet(options);
+      if (token !== chordPipeline.token) return;
+      if (continuous) {
+        const secondChords = await generateChordSet(options, firstChords);
+        if (token !== chordPipeline.token) return;
+        chordPipeline.playing = makeChordSet(firstChords); chordPipeline.ready = [makeChordSet(secondChords)];
+      }
+      window.resonaAudio.setChordProgression(firstChords, data.duration);
+      sendToPage('resona:chord-result', { chords:window.resonaAudio.config.ambient.chordProgression, duration:window.resonaAudio.config.ambient.chordDuration });
+      if (continuous) { sendChordPipeline(); generateAhead(chordPipeline.ready[0].chords); }
+    } catch (error) {
+      if (token !== chordPipeline.token) return;
+      if (continuous) resetChordPipeline(false);
+      sendToPage('resona:chord-status', { status:'error', message:error.message });
+    }
+  }
+  window.addEventListener('resona:chord-set-ended', () => {
+    if (!chordPipeline.enabled || !chordPipeline.ready.length) return;
+    chordPipeline.playing = chordPipeline.ready.shift();
+    window.resonaAudio.setChordProgression(chordPipeline.playing.chords, window.resonaAudio.config.ambient.chordDuration);
+    sendToPage('resona:chord-result', { chords:window.resonaAudio.config.ambient.chordProgression, duration:window.resonaAudio.config.ambient.chordDuration });
+    sendChordPipeline();
+    if (!chordPipeline.generating) generateAhead((chordPipeline.ready[chordPipeline.ready.length - 1] || chordPipeline.playing).chords);
+  });
+  frame.addEventListener('load', () => { loader.classList.remove('show'); sendAudioState(); sendChordPipeline(); });
   window.addEventListener('resona:audio-state-change', sendAudioState);
   window.addEventListener('message', async event => {
     if (event.source !== frame.contentWindow || !event.data || typeof event.data !== 'object') return;
@@ -29,15 +85,11 @@
       else if (data.action === 'setVolume' && ['binaural','ambient','noise'].includes(data.name || data.volumeType) && Number.isFinite(Number(data.value ?? data.volumeValue))) window.resonaAudio.setVolume(data.name || data.volumeType, Math.max(0, Math.min(100, Number(data.value ?? data.volumeValue))));
       else if (data.action === 'toggleAmbient') window.resonaAudio.toggleAmbient();
       else if (data.action === 'setDroneFrequency' && Number.isFinite(Number(data.value))) window.resonaAudio.setDroneFrequency(Math.max(40, Math.min(400, Number(data.value))));
+      else if (data.action === 'setChordTransition' && Number.isFinite(Number(data.value))) window.resonaAudio.setChordTransition(data.value);
+      else if (data.action === 'setBinauralChordTransition' && Number.isFinite(Number(data.value))) window.resonaAudio.setBinauralChordTransition(data.value);
       else if (data.action === 'setAmbient' && ['drone','pads','textures','melody','spatial'].includes(data.name) && Number.isFinite(Number(data.value))) window.resonaAudio.setAmbient(data.name, Math.max(0, Math.min(100, Number(data.value))));
-      else if (data.action === 'generateChordProgression') {
-        sendToPage('resona:chord-status', { status:'loading', message:'Loading your private model…' });
-        try {
-          const chords = await chordModel.generate({ seedChords:Array.isArray(data.seedChords) ? data.seedChords : [], length:data.length, temperature:data.temperature, topK:data.topK, greedy:data.greedy });
-          window.resonaAudio.setChordProgression(chords, data.duration);
-          sendToPage('resona:chord-result', { chords, duration:window.resonaAudio.config.ambient.chordDuration });
-        } catch (error) { sendToPage('resona:chord-status', { status:'error', message:error.message }); }
-      }
+      else if (data.action === 'setContinuousChordMode') { if (!data.enabled) resetChordPipeline(false); else { chordPipeline.enabled = true; sendChordPipeline(); } }
+      else if (data.action === 'generateChordProgression') await generateProgression(data);
       else if (data.action === 'toggleChordProgression') window.resonaAudio.toggleChordProgression();
       else if (data.action === 'stopChordProgression') window.resonaAudio.stopChordProgression();
       else if (data.action === 'replayChordProgression') window.resonaAudio.replayChordProgression();

@@ -31,6 +31,10 @@ def test_registration_creates_isolated_default_workspace(app, registered):
         assert "data-chord-duration" in safe_path("listener", "pages/home.html").read_text()
         assert "data-chord-temperature" in safe_path("listener", "pages/home.html").read_text()
         assert "data-chord-top-k" in safe_path("listener", "pages/home.html").read_text()
+        assert "data-chord-continuous" in safe_path("listener", "pages/home.html").read_text()
+        assert "data-chord-pipeline" in safe_path("listener", "pages/home.html").read_text()
+        assert "data-chord-transition" in safe_path("listener", "pages/home.html").read_text()
+        assert "data-binaural-chord-transition" in safe_path("listener", "pages/home.html").read_text()
         assert "Minimal melodic elements" in safe_path("listener", "pages/home.html").read_text()
         assert "volume-mixer-card" in safe_path("listener", "pages/home.html").read_text()
         assert "data-volume=\"binaural\"" in safe_path("listener", "pages/home.html").read_text()
@@ -282,10 +286,10 @@ def test_player_upgrades_untouched_noise_home_to_drone_frequency_control(app, re
         home = safe_path("listener", "pages/home.html").read_text()
         assert 'min="40" max="400"' in home
         assert "data-drone-frequency" in home
-        assert "Shared harmonic root and binaural carrier" in home
+        assert "Base root for harmony and binaural chords" in home
 
 
-def test_player_upgrades_drone_control_to_shared_binaural_carrier(app, registered):
+def test_player_upgrades_drone_control_to_chord_following_binaural_carrier(app, registered):
     from resona.user_storage import _single_home_v6_page
 
     with app.app_context():
@@ -293,8 +297,8 @@ def test_player_upgrades_drone_control_to_shared_binaural_carrier(app, registere
     assert registered.get("/player/").status_code == 200
     with app.app_context():
         home = safe_path("listener", "pages/home.html").read_text()
-        assert "Shared harmonic root and binaural carrier" in home
-        assert "ambient harmony and binaural carrier" in home
+        assert "Base root for harmony and binaural chords" in home
+        assert "binaural carrier follow each chord" in home
 
 
 def test_player_upgrades_shared_carrier_home_to_private_chord_model(app, registered):
@@ -308,6 +312,80 @@ def test_player_upgrades_shared_carrier_home_to_private_chord_model(app, registe
         assert "Private on-device model" in home
         assert "Generate &amp; apply" in home
         assert "data-chord-length" in home
+
+
+def test_player_upgrades_pad_only_chords_to_harmonized_ambient_chords(app, registered):
+    from resona.user_storage import _single_home_v8_page
+
+    with app.app_context():
+        safe_path("listener", "pages/home.html").write_text(_single_home_v8_page(), encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        home = safe_path("listener", "pages/home.html").read_text()
+        assert "lush pads, melodic tones, and binaural carrier" in home
+        assert "simplified into one coherent key" in home
+
+
+def test_player_upgrades_harmonized_chords_to_continuous_set_mode(app, registered):
+    from resona.user_storage import _single_home_v9_page
+
+    with app.app_context():
+        safe_path("listener", "pages/home.html").write_text(_single_home_v9_page(), encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        home = safe_path("listener", "pages/home.html").read_text()
+        styles = safe_path("listener", "static/user.css").read_text()
+        assert "data-chord-continuous" in home
+        assert "data-chord-pipeline-playing" in home
+        assert "data-chord-pipeline-ready" in home
+        assert "data-chord-pipeline-generating" in home
+        assert "single-home-v10" in styles
+
+
+def test_player_upgrades_continuous_mode_to_chord_following_binaural_audio(app, registered):
+    from resona.user_storage import _single_home_v10_page
+
+    with app.app_context():
+        safe_path("listener", "pages/home.html").write_text(_single_home_v10_page(), encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        home = safe_path("listener", "pages/home.html").read_text()
+        assert "lush pads, melodic tones, and binaural carrier" in home
+        assert "binaural carrier follow each chord" in home
+
+
+def test_player_upgrades_chord_following_audio_to_transition_controls(app, registered):
+    from resona.user_storage import _single_home_v11_page
+
+    with app.app_context():
+        safe_path("listener", "pages/home.html").write_text(_single_home_v11_page(), encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        home = safe_path("listener", "pages/home.html").read_text()
+        styles = safe_path("listener", "static/user.css").read_text()
+        assert "Chord transition timing" in home
+        assert "data-chord-transition" in home
+        assert "data-binaural-chord-transition" in home
+        assert home.count("<output>Instant</output>") == 2
+        assert "single-home-v12" in styles
+
+
+def test_player_upgrades_chord_duration_to_two_through_120_seconds(app, registered):
+    from resona.user_storage import _single_home_v12_page
+
+    with app.app_context():
+        safe_path("listener", "pages/home.html").write_text(_single_home_v12_page(), encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        home = safe_path("listener", "pages/home.html").read_text()
+        assert 'min="2" max="120" step="1" value="4" data-chord-duration' in home
+        assert 'min="1" max="12" step="0.5" value="4" data-chord-duration' not in home
+
+
+def test_audio_engine_clamps_chord_duration_to_two_through_120_seconds(registered):
+    audio = registered.get("/static/js/audio.js").get_data(as_text=True)
+    chord_setter = audio.split("    setChordProgression(chords, duration)", 1)[1].split("    toggleChordProgression()", 1)[0]
+    assert "Math.max(2, Math.min(120, Number(duration) || 4))" in chord_setter
 
 
 def test_authentication_gate_blocks_other_user_storage(app, registered):
@@ -361,7 +439,7 @@ def test_binaural_engine_never_starts_or_controls_noise(registered):
     assert "this.startNoise()" in noise_selection
 
 
-def test_ambient_layers_and_binaural_carrier_follow_drone_without_tuning_textures(registered):
+def test_ambient_layers_and_active_binaural_chord_follow_drone_without_tuning_textures(registered):
     audio = registered.get("/static/js/audio.js").get_data(as_text=True)
     frequency_map = audio.split("    ambientFrequencies(", 1)[1].split("    setDroneFrequency(", 1)[0]
     frequency_update = audio.split("    setDroneFrequency(", 1)[1].split("    startAmbient()", 1)[0]
@@ -372,32 +450,85 @@ def test_ambient_layers_and_binaural_carrier_follow_drone_without_tuning_texture
     assert "root * 4" in frequency_map
     assert "textures" not in frequency_map
     assert "textureFilter" not in frequency_update
-    assert "this.config.carrier = root" in frequency_update
+    assert "this.config.carrier = chordFrequencies ? chordFrequencies.pads[0] : root" in frequency_update
     assert "this.updateBinauralFrequencies()" in frequency_update
     assert "setTargetAtTime" in frequency_update
 
 
-def test_binaural_pair_is_symmetric_around_drone_frequency(registered):
+def test_binaural_pair_is_symmetric_around_active_chord_carrier(registered):
     audio = registered.get("/static/js/audio.js").get_data(as_text=True)
-    pair = audio.split("    binauralPair(", 1)[1].split("    updateBinauralFrequencies()", 1)[0]
-    update = audio.split("    updateBinauralFrequencies()", 1)[1].split("    setBeat(", 1)[0]
+    pair = audio.split("    binauralPair(", 1)[1].split("    updateBinauralFrequencies(", 1)[0]
+    update = audio.split("    updateBinauralFrequencies(", 1)[1].split("    setBeat(", 1)[0]
     assert "left:center - beat / 2" in pair
     assert "right:center + beat / 2" in pair
-    assert "this.left.frequency.setTargetAtTime(pair.left" in update
-    assert "this.right.frequency.setTargetAtTime(pair.right" in update
+    assert "retune(this.left.frequency, pair.left, .3)" in update
+    assert "retune(this.right.frequency, pair.right, .3)" in update
+    assert "if (chordTransition === null) parameter.setTargetAtTime(frequency, now, glide)" in update
+    assert "else if (chordTransition <= 0) parameter.setValueAtTime(frequency, now)" in update
+    assert "parameter.linearRampToValueAtTime(frequency, now + chordTransition)" in update
 
 
-def test_chord_progression_retunes_ambient_pads_in_browser(registered):
+def test_chord_progression_harmonizes_all_pitched_ambient_layers_in_browser(registered):
     audio = registered.get("/static/js/audio.js").get_data(as_text=True)
-    chord_logic = audio.split("    chordFrequencies(", 1)[1].split("    startAmbient()", 1)[0]
-    manual_frequency = audio.split("    setDroneFrequency(", 1)[1].split("    chordFrequencies(", 1)[0]
+    chord_logic = audio.split("    harmonizeProgression(", 1)[1].split("    startAmbient()", 1)[0]
+    manual_frequency = audio.split("    setDroneFrequency(", 1)[1].split("    parseChord(", 1)[0]
+    assert "[0,2,4,5,7,9,11]" in chord_logic
+    assert "[0,2,3,5,7,8,10]" in chord_logic
+    assert "this.progressionTonic = tonic.root" in chord_logic
     assert "this.config.ambient.droneFrequency * Math.pow(2" in chord_logic
-    assert "this.ambientOscillators.pads.forEach" in chord_logic
+    assert "pads:" in chord_logic
+    assert "melody:" in chord_logic
+    assert "Object.entries(frequencies)" in chord_logic
     assert "frequency.cancelScheduledValues(now)" in chord_logic
-    assert "frequency.setValueAtTime(frequencies[index], now)" in chord_logic
+    assert "frequency.setValueAtTime(values[index], now)" in chord_logic
     assert "frequency.setTargetAtTime(values[index], now, .35)" in manual_frequency
+    assert "textureFilter" not in chord_logic
+    assert "ambientSpatial" not in chord_logic
     assert "setInterval" in chord_logic
     assert "setChordProgression(chords, duration)" in chord_logic
+    assert "this.harmonizeProgression(chords)" in chord_logic
+    assert "this.config.carrier = frequencies.pads[0]" in chord_logic
+    assert "this.updateBinauralFrequencies(Math.min(this.config.ambient.binauralChordTransition, this.config.ambient.chordDuration))" in chord_logic
+    assert "this.updateBinauralFrequencies();" in manual_frequency
+    assert "binauralChordTransition" not in manual_frequency
+
+
+def test_progression_transition_controls_do_not_change_manual_drone_glide(registered):
+    audio = registered.get("/static/js/audio.js").get_data(as_text=True)
+    player = registered.get("/static/js/player.js").get_data(as_text=True)
+    page = registered.get("/storage/listener/pages/home.html").get_data(as_text=True)
+    chord_application = audio.split("    applyProgressionChord()", 1)[1].split("    scheduleProgression()", 1)[0]
+    manual_frequency = audio.split("    setDroneFrequency(", 1)[1].split("    parseChord(", 1)[0]
+    assert "chordTransition:0" in audio
+    assert "binauralChordTransition:0" in audio
+    assert "setChordTransition(value)" in audio
+    assert "setBinauralChordTransition(value)" in audio
+    assert "linearRampToValueAtTime(values[index], now + chordTransition)" in chord_application
+    assert "binauralChordTransition" in chord_application
+    assert "setTargetAtTime(values[index], now, .35)" in manual_frequency
+    assert "linearRampToValueAtTime" not in manual_frequency
+    assert "data.action === 'setChordTransition'" in player
+    assert "data.action === 'setBinauralChordTransition'" in player
+    assert "action:'setChordTransition'" in page
+    assert "action:'setBinauralChordTransition'" in page
+
+
+def test_continuous_chord_mode_prefetches_and_swaps_sets_at_boundaries(registered):
+    audio = registered.get("/static/js/audio.js").get_data(as_text=True)
+    player = registered.get("/static/js/player.js").get_data(as_text=True)
+    page = registered.get("/storage/listener/pages/home.html").get_data(as_text=True)
+    assert "resona:chord-set-ended" in audio
+    assert "this.chordProgressionIndex + 1 >= activeChords.length" in audio
+    assert "this.config.ambient.chordProgression !== activeChords" in audio
+    assert "const chordPipeline = { enabled:false" in player
+    assert "chordPipeline.ready = [makeChordSet(secondChords)]" in player
+    assert "generateAhead(chordPipeline.ready[0].chords)" in player
+    assert "chordPipeline.playing = chordPipeline.ready.shift()" in player
+    assert "generateAhead((chordPipeline.ready[chordPipeline.ready.length - 1] || chordPipeline.playing).chords)" in player
+    assert "data-chord-continuous" in page
+    assert "action:'setContinuousChordMode'" in page
+    assert "continuous:Boolean" in page
+    assert "resona:chord-pipeline" in page
 
 
 def test_path_traversal_is_rejected(app):

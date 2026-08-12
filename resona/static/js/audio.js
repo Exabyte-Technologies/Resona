@@ -8,11 +8,12 @@
       this.chordProgressionPlaying = false;
       this.chordProgressionPaused = false;
       this.chordProgressionIndex = 0;
+      this.progressionTonic = 0;
       this.chordTimer = null;
       this.nodes = [];
       this.ambientNodes = [];
       this.noiseNodes = [];
-      this.config = { carrier: 200, beat: 6, noise: 'pink', master: .34, volumes: { binaural: 50, ambient: 50, noise: 50 }, layers: { pad: .72, flute: .38, strings: .51, bells: .24 }, ambient: { droneFrequency: 200, drone: 48, pads: 64, textures: 32, melody: 24, spatial: 46, chordProgression:[], chordDuration:4 } };
+      this.config = { carrier: 200, beat: 6, noise: 'pink', master: .34, volumes: { binaural: 50, ambient: 50, noise: 50 }, layers: { pad: .72, flute: .38, strings: .51, bells: .24 }, ambient: { droneFrequency: 200, drone: 48, pads: 64, textures: 32, melody: 24, spatial: 46, chordProgression:[], chordDuration:4, chordTransition:0, binauralChordTransition:0 } };
       if (window.ResonaCustomSynth && typeof window.ResonaCustomSynth.configure === 'function') window.ResonaCustomSynth.configure(this);
       this.config.ambient.droneFrequency = Math.max(40, Math.min(400, Number(this.config.ambient.droneFrequency) || 200));
       this.config.carrier = this.config.ambient.droneFrequency;
@@ -46,13 +47,21 @@
     stop() { if (!this.playing) return; const now = this.context.currentTime; this.master.gain.cancelScheduledValues(now); this.master.gain.setValueAtTime(Math.max(this.master.gain.value, .0001), now); this.master.gain.exponentialRampToValueAtTime(.0001, now + .5); const nodes = this.nodes.slice(); setTimeout(() => nodes.forEach(node => { try { if (node.stop) node.stop(); else node.disconnect(); } catch (_) {} }), 600); this.nodes = []; this.binauralTones = null; this.playing = false; }
     toggle() { this.playing ? this.stop() : this.start(); return this.playing; }
     binauralPair(center = this.config.carrier, beat = this.config.beat) { return { left:center - beat / 2, right:center + beat / 2 }; }
-    updateBinauralFrequencies() {
+    updateBinauralFrequencies(chordTransition = null) {
       if (!this.playing) return;
       const pair = this.binauralPair(), now = this.context.currentTime;
-      this.left.frequency.setTargetAtTime(pair.left, now, .3); this.right.frequency.setTargetAtTime(pair.right, now, .3);
-      [this.config.carrier / 2, this.config.carrier * 1.5, this.config.carrier * 2].forEach((frequency, index) => this.binauralTones[index].frequency.setTargetAtTime(frequency, now, .35));
+      const retune = (parameter, frequency, glide) => {
+        parameter.cancelScheduledValues(now);
+        if (chordTransition === null) parameter.setTargetAtTime(frequency, now, glide);
+        else if (chordTransition <= 0) parameter.setValueAtTime(frequency, now);
+        else { parameter.setValueAtTime(parameter.value, now); parameter.linearRampToValueAtTime(frequency, now + chordTransition); }
+      };
+      retune(this.left.frequency, pair.left, .3); retune(this.right.frequency, pair.right, .3);
+      [this.config.carrier / 2, this.config.carrier * 1.5, this.config.carrier * 2].forEach((frequency, index) => retune(this.binauralTones[index].frequency, frequency, .35));
     }
     setBeat(value) { this.config.beat = Math.max(.1, Math.min(Number(value), this.config.carrier * 1.8)); this.updateBinauralFrequencies(); }
+    setChordTransition(value) { this.config.ambient.chordTransition = Math.max(0, Math.min(4, Number(value) || 0)); }
+    setBinauralChordTransition(value) { this.config.ambient.binauralChordTransition = Math.max(0, Math.min(4, Number(value) || 0)); }
     setLayer(name, value) { if (name in this.config.layers) this.config.layers[name] = Number(value) / 100; }
     setVolume(name, value) { if (!(name in this.config.volumes)) return; const level = Math.max(0, Math.min(100, Number(value))); this.config.volumes[name] = level; const now = this.context?.currentTime || 0; if (name === 'binaural' && this.playing) this.master.gain.setTargetAtTime(this.config.master * level / 50, now, .04); else if (name === 'ambient' && this.ambientPlaying) this.ambientOutput.gain.setTargetAtTime(.42 * level / 50, now, .08); else if (name === 'noise' && this.noisePlaying) { const noiseLevel = .20 * level / 50; this.noiseOutput.gain.setTargetAtTime(noiseLevel, now, .06); this.noiseLfoDepth.gain.setTargetAtTime(noiseLevel * this.noiseLfoRatio, now, .08); } }
     setNoise(name) { this.config.noise = name; if (this.noisePlaying) { this.stopNoise(); setTimeout(() => this.startNoise(), 850); } }
@@ -77,34 +86,76 @@
     }
     setDroneFrequency(value) {
       const root = Math.max(40, Math.min(400, Number(value)));
-      this.config.ambient.droneFrequency = root; this.config.carrier = root; this.updateBinauralFrequencies();
+      this.config.ambient.droneFrequency = root;
+      const baseFrequencies = this.ambientFrequencies(root), chords = this.config.ambient.chordProgression;
+      const chordFrequencies = chords.length ? this.chordFrequencies(chords[this.chordProgressionIndex]) : null;
+      this.config.carrier = chordFrequencies ? chordFrequencies.pads[0] : root; this.updateBinauralFrequencies();
       if (!this.ambientPlaying || !this.ambientOscillators) return;
-      const frequencies = this.ambientFrequencies(root), now = this.context.currentTime;
+      const frequencies = chordFrequencies ? { drone:baseFrequencies.drone, ...chordFrequencies } : baseFrequencies, now = this.context.currentTime;
       Object.entries(frequencies).forEach(([layer, values]) => this.ambientOscillators[layer].forEach((oscillator, index) => oscillator.frequency.setTargetAtTime(values[index], now, .35)));
     }
-    chordFrequencies(chord) {
+    parseChord(chord) {
       const noteOffsets = { C:0, Cs:1, Db:1, D:2, Ds:3, Eb:3, E:4, F:5, Fs:6, Gb:6, G:7, Gs:8, Ab:8, A:9, As:10, Bb:10, B:11 };
-      const name = String(chord || 'C').split('/')[0], rootName = Object.keys(noteOffsets).sort((a,b) => b.length-a.length).find(note => name.startsWith(note)) || 'C', quality = name.slice(rootName.length).toLowerCase();
-      let intervals = quality.includes('dim') ? [0,3,6] : quality.includes('aug') ? [0,4,8] : quality.includes('sus2') ? [0,2,7] : quality.includes('sus') ? [0,5,7] : quality.includes('min') && !quality.includes('maj') ? [0,3,7] : [0,4,7];
-      if (quality.includes('maj7')) intervals.push(11); else if (quality.includes('7')) intervals.push(10); else intervals.push(12);
-      return intervals.slice(0,4).map(interval => this.config.ambient.droneFrequency * Math.pow(2, (noteOffsets[rootName] + interval) / 12));
+      const name = String(chord || 'C').trim().replace(/([A-G])#/g, '$1s').split('/')[0];
+      const rootName = Object.keys(noteOffsets).sort((a,b) => b.length-a.length).find(note => name.startsWith(note)) || 'C';
+      return { root:noteOffsets[rootName], quality:name.slice(rootName.length).toLowerCase() };
+    }
+    harmonizeProgression(chords) {
+      const source = Array.isArray(chords) ? chords.slice(0,64).map(String) : [];
+      if (!source.length) return [];
+      const tonic = this.parseChord(source[0]), minor = tonic.quality.includes('min') && !tonic.quality.includes('maj');
+      const degrees = minor ? [0,2,3,5,7,8,10] : [0,2,4,5,7,9,11];
+      const qualities = minor ? ['min','dim','','min','min','',''] : ['','min','min','','','min','dim'];
+      const names = ['C','Cs','D','Ds','E','F','Fs','G','Gs','A','As','B'];
+      this.progressionTonic = tonic.root;
+      return source.map(chord => {
+        const relative = (this.parseChord(chord).root - tonic.root + 12) % 12;
+        const degreeIndex = degrees.reduce((best, degree, index) => {
+          const distance = Math.min(Math.abs(relative - degree), 12 - Math.abs(relative - degree));
+          return distance < best.distance ? { index, distance } : best;
+        }, { index:0, distance:Infinity }).index;
+        return names[(tonic.root + degrees[degreeIndex]) % 12] + qualities[degreeIndex];
+      });
+    }
+    chordFrequencies(chord) {
+      const parsed = this.parseChord(chord), relativeRoot = (parsed.root - this.progressionTonic + 12) % 12;
+      const triad = parsed.quality.includes('dim') ? [0,3,6] : parsed.quality.includes('min') && !parsed.quality.includes('maj') ? [0,3,7] : [0,4,7];
+      const frequency = interval => this.config.ambient.droneFrequency * Math.pow(2, (relativeRoot + interval) / 12);
+      return {
+        pads: [frequency(triad[0]), frequency(triad[1]), frequency(triad[2]), frequency(12)],
+        melody: [frequency(12 + triad[0]), frequency(12 + triad[1]), frequency(12 + triad[2]), frequency(24)]
+      };
     }
     applyProgressionChord() {
       const chords = this.config.ambient.chordProgression;
       if (!this.ambientPlaying || !this.ambientOscillators || !chords.length) return;
       const frequencies = this.chordFrequencies(chords[this.chordProgressionIndex]), now = this.context.currentTime;
-      this.ambientOscillators.pads.forEach((oscillator, index) => { oscillator.frequency.cancelScheduledValues(now); oscillator.frequency.setValueAtTime(frequencies[index], now); });
+      const chordTransition = Math.min(this.config.ambient.chordTransition, this.config.ambient.chordDuration);
+      Object.entries(frequencies).forEach(([layer, values]) => this.ambientOscillators[layer].forEach((oscillator, index) => {
+        oscillator.frequency.cancelScheduledValues(now);
+        if (chordTransition <= 0) oscillator.frequency.setValueAtTime(values[index], now);
+        else { oscillator.frequency.setValueAtTime(oscillator.frequency.value, now); oscillator.frequency.linearRampToValueAtTime(values[index], now + chordTransition); }
+      }));
+      this.config.carrier = frequencies.pads[0]; this.updateBinauralFrequencies(Math.min(this.config.ambient.binauralChordTransition, this.config.ambient.chordDuration));
       this.notifyState();
     }
     scheduleProgression() {
       clearInterval(this.chordTimer); this.chordTimer = null;
       if (!this.chordProgressionPlaying || this.chordProgressionPaused || !this.config.ambient.chordProgression.length) return;
       this.applyProgressionChord();
-      this.chordTimer = setInterval(() => { this.chordProgressionIndex = (this.chordProgressionIndex + 1) % this.config.ambient.chordProgression.length; this.applyProgressionChord(); }, this.config.ambient.chordDuration * 1000);
+      this.chordTimer = setInterval(() => {
+        const activeChords = this.config.ambient.chordProgression;
+        if (this.chordProgressionIndex + 1 >= activeChords.length) {
+          window.dispatchEvent(new CustomEvent('resona:chord-set-ended', { detail:{ chords:activeChords.slice() } }));
+          if (this.config.ambient.chordProgression !== activeChords) return;
+          this.chordProgressionIndex = 0;
+        } else this.chordProgressionIndex += 1;
+        this.applyProgressionChord();
+      }, this.config.ambient.chordDuration * 1000);
     }
     setChordProgression(chords, duration) {
-      this.config.ambient.chordProgression = Array.isArray(chords) ? chords.slice(0,64).map(String) : [];
-      this.config.ambient.chordDuration = Math.max(.5, Math.min(16, Number(duration) || 4));
+      this.config.ambient.chordProgression = this.harmonizeProgression(chords);
+      this.config.ambient.chordDuration = Math.max(2, Math.min(120, Number(duration) || 4));
       this.chordProgressionIndex = 0; this.chordProgressionPlaying = Boolean(this.config.ambient.chordProgression.length); this.chordProgressionPaused = false;
       if (!this.ambientPlaying && this.chordProgressionPlaying) this.startAmbient(); else this.scheduleProgression();
     }

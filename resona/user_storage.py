@@ -315,7 +315,7 @@ def _single_home_v7_page():
     )
 
 
-def default_home_page():
+def _single_home_v8_page():
     chord_card = '''  <section class="chord-subcard" data-chord-card aria-labelledby="chord-progression-title">
     <div class="chord-subcard-heading"><div><p>Private on-device model</p><h3 id="chord-progression-title">Chord progression</h3></div><span>Browser AI</span></div>
     <p class="chord-help">Generate a progression that retunes the lush pads. Model inference stays in this browser; results can vary.</p>
@@ -335,6 +335,59 @@ def default_home_page():
     marker = '  <div class="card-transport ambient-transport" aria-label="Ambient playback">'
     page = _single_home_v7_page()
     return page.replace(marker, chord_card + marker, 1)
+
+
+def _single_home_v9_page():
+    return _single_home_v8_page().replace(
+        "Generate a progression that retunes the lush pads. Model inference stays in this browser; results can vary.",
+        "Generate a harmonized progression for the lush pads and melodic tones. Complex predictions are simplified into one coherent key.",
+    )
+
+
+def _single_home_v10_page():
+    continuous_control = '''    <label class="chord-continuous"><input type="checkbox" data-chord-continuous><span>Continuous sets <small>Keep one set ready while the following set generates</small></span></label>
+    <div class="chord-pipeline" data-chord-pipeline hidden aria-live="polite">
+      <span><small>Playing</small><strong data-chord-pipeline-playing>—</strong></span>
+      <span><small>Ready</small><strong data-chord-pipeline-ready>—</strong></span>
+      <span><small>Generating</small><strong data-chord-pipeline-generating>—</strong></span>
+    </div>
+'''
+    marker = '    <div class="chord-results" data-chord-results aria-live="polite">'
+    return _single_home_v9_page().replace(marker, continuous_control + marker, 1)
+
+
+def _single_home_v11_page():
+    return _single_home_v10_page().replace(
+        "Shared harmonic root and binaural carrier",
+        "Base root for harmony and binaural chords",
+    ).replace(
+        "Set the shared tonal anchor for the ambient harmony and binaural carrier. Pads and melody follow it; textures stay broadband and spatial effects stay pitchless.",
+        "Set the base tonal anchor. Pads, melody, and the binaural carrier follow each chord; textures stay broadband and spatial effects stay pitchless.",
+    ).replace(
+        "Generate a harmonized progression for the lush pads and melodic tones. Complex predictions are simplified into one coherent key.",
+        "Generate a harmonized progression for the lush pads, melodic tones, and binaural carrier. Complex predictions are simplified into one coherent key.",
+    )
+
+
+def _single_home_v12_page():
+    transition_card = '''  <section class="binaural-transition-subcard" aria-labelledby="binaural-transition-title">
+    <div class="transition-subcard-heading"><div><p>Progression response</p><h3 id="binaural-transition-title">Chord transition timing</h3></div><span>Per chord</span></div>
+    <p>Shape how quickly the pitched layers move when the chord progression advances. Manual drone tuning keeps its own smooth response.</p>
+    <div class="transition-controls">
+      <label><span><strong>Ambient chords</strong><small>Lush pads and melodic tones</small></span><output>Instant</output><input type="range" min="0" max="4" step="0.1" value="0" data-chord-transition></label>
+      <label><span><strong>Binaural beats</strong><small>Left and right carrier frequencies</small></span><output>Instant</output><input type="range" min="0" max="4" step="0.1" value="0" data-binaural-chord-transition></label>
+    </div>
+  </section>
+'''
+    marker = '  <div class="card-transport" aria-label="Binaural playback">'
+    return _single_home_v11_page().replace(marker, transition_card + marker, 1)
+
+
+def default_home_page():
+    return _single_home_v12_page().replace(
+        'min="1" max="12" step="0.5" value="4" data-chord-duration',
+        'min="2" max="120" step="1" value="4" data-chord-duration',
+    )
 
 
 SINGLE_HOME_STYLES = '''
@@ -362,6 +415,14 @@ CHORD_PROGRESSION_STYLES = '''
 @media(max-width:520px){.chord-seed{grid-template-columns:1fr}.chord-settings{grid-template-columns:1fr}.chord-actions button{flex:1}.chord-actions .chord-generate{flex-basis:100%}}
 '''
 
+CONTINUOUS_CHORD_STYLES = '''
+.chord-continuous{display:flex;align-items:center;gap:8px;margin:10px 1px;color:#aab3b5;font-size:9px}.chord-continuous input{accent-color:#a9ccec}.chord-continuous small{display:block;color:#657176;font-size:7px}.chord-pipeline{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:9px 0}.chord-pipeline[hidden]{display:none}.chord-pipeline>span{display:flex;align-items:center;justify-content:space-between;gap:5px;padding:7px 8px;border:1px solid rgba(184,216,244,.1);border-radius:10px;background:#111a1e}.chord-pipeline small{color:#657780;font-size:7px;text-transform:uppercase;letter-spacing:.08em}.chord-pipeline strong{color:#c8e5fa;font-size:9px}.chord-pipeline>span:last-child strong{animation:pipeline-pulse 1.15s ease-in-out infinite}@keyframes pipeline-pulse{50%{opacity:.42}}@media(max-width:520px){.chord-pipeline{grid-template-columns:1fr}.chord-pipeline>span{padding:8px 10px}}
+'''
+
+CHORD_TRANSITION_STYLES = '''
+.binaural-transition-subcard{position:relative;margin-top:18px;padding:16px;border:1px solid rgba(185,230,140,.12);border-radius:20px;background:rgba(8,13,8,.3)}.transition-subcard-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.transition-subcard-heading p{margin:0;color:#78896c;font-size:8px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.transition-subcard-heading h3{margin:3px 0 0;font:400 20px/1.1 Georgia,serif}.transition-subcard-heading>span{padding:4px 7px;border-radius:999px;background:#20301b;color:#c4ef99;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.binaural-transition-subcard>p{margin:8px 0 12px;color:#747e72;font-size:8px}.transition-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.transition-controls label{display:grid;grid-template-columns:1fr auto;gap:4px 8px;padding:9px 10px;border:1px solid rgba(255,255,255,.055);border-radius:12px;background:rgba(8,11,8,.2)}.transition-controls span strong,.transition-controls span small{display:block}.transition-controls span strong{font-size:9px}.transition-controls span small{color:#697267;font-size:7px}.transition-controls output{color:#c4ef99;font-size:8px;font-variant-numeric:tabular-nums}.transition-controls input{grid-column:1/-1;width:100%;height:3px;accent-color:#a9cf83}@media(max-width:520px){.transition-controls{grid-template-columns:1fr}}
+'''
+
 
 def _ensure_single_home_styles(root):
     css_path = root / "static/user.css"
@@ -373,6 +434,10 @@ def _ensure_single_home_styles(root):
         additions += "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES
     if "single-home-v7" not in css:
         additions += "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES
+    if "single-home-v10" not in css:
+        additions += "\n/* single-home-v10 */\n" + CONTINUOUS_CHORD_STYLES
+    if "single-home-v12" not in css:
+        additions += "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES
     if additions:
         css_path.write_text(css.rstrip() + additions + "\n", encoding="utf-8")
 
@@ -404,6 +469,26 @@ def migrate_legacy_default_workspace(username):
     actual = [(item.get("id"), item.get("target_html")) for item in items if isinstance(item, dict)]
     current_home = home_path.read_text(encoding="utf-8")
     if actual == [("home", "pages/home.html")] and current_home == default_home_page():
+        _ensure_single_home_styles(root)
+        return True
+    if actual == [("home", "pages/home.html")] and current_home == _single_home_v12_page():
+        home_path.write_text(default_home_page(), encoding="utf-8")
+        _ensure_single_home_styles(root)
+        return True
+    if actual == [("home", "pages/home.html")] and current_home == _single_home_v11_page():
+        home_path.write_text(default_home_page(), encoding="utf-8")
+        _ensure_single_home_styles(root)
+        return True
+    if actual == [("home", "pages/home.html")] and current_home == _single_home_v10_page():
+        home_path.write_text(default_home_page(), encoding="utf-8")
+        _ensure_single_home_styles(root)
+        return True
+    if actual == [("home", "pages/home.html")] and current_home == _single_home_v9_page():
+        home_path.write_text(default_home_page(), encoding="utf-8")
+        _ensure_single_home_styles(root)
+        return True
+    if actual == [("home", "pages/home.html")] and current_home == _single_home_v8_page():
+        home_path.write_text(default_home_page(), encoding="utf-8")
         _ensure_single_home_styles(root)
         return True
     if actual == [("home", "pages/home.html")] and current_home == _single_home_v5_page():
@@ -452,7 +537,7 @@ def initialize_user_storage(username):
     (root / "memory/plan.md").write_text("# Vibe modification log\n\n", encoding="utf-8")
     (root / "memory/changelog.md").write_text("# Resona changelog\n\n", encoding="utf-8")
     css = '''*{box-sizing:border-box}html,body{min-height:100%;background:#121611}body{margin:0;color:#f5f1e8;font:500 16px/1.5 Inter,system-ui,sans-serif}.page{width:min(1040px,100%);margin:auto;padding:clamp(28px,6vw,72px) clamp(20px,5vw,54px) 150px}.eyebrow{margin:0;color:#b9e68c;text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:800}h1{font:600 clamp(42px,8vw,82px)/.98 Georgia,serif;letter-spacing:-.05em;margin:10px 0 14px}.intro{max-width:610px;margin:0;color:#b7b5ae}.binaural-panel{margin-top:clamp(34px,6vw,68px)}.panel-heading p{margin:0;color:#858b81;font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}.panel-heading h2{margin:5px 0 18px;font:400 clamp(25px,4vw,36px) Georgia,serif}.band-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.band-button{min-height:116px;padding:18px;border:1px solid rgba(255,255,255,.1);border-radius:20px;background:#1b2019;color:#f5f1e8;text-align:left;cursor:pointer;transition:.22s}.band-button strong,.band-button span{display:block}.band-button strong{font-size:18px}.band-button span{margin-top:8px;color:#8e948a;font-size:11px}.band-button:hover,.band-button.active{transform:translateY(-2px);border-color:#8daf6e;background:#24301f;box-shadow:0 14px 34px #0005}.band-button.active strong{color:#c4ef99}.playback-control{display:flex;flex-direction:column;align-items:center;margin-top:clamp(36px,7vw,72px)}.playback-control>p{color:#9ca396;font-size:12px}.play-toggle{display:flex;align-items:center;justify-content:center;gap:12px;width:160px;height:64px;border:0;border-radius:999px;background:#b9e68c;color:#15200f;box-shadow:0 0 0 9px rgba(185,230,140,.07),0 18px 45px #0007;cursor:pointer}.play-toggle:hover{transform:scale(1.03)}.play-toggle.playing{background:#f1eee5}.play-symbol{font-size:14px}.playback-control small{margin-top:15px;color:#696e66;font-size:10px;text-transform:uppercase;letter-spacing:.12em}@media(max-width:760px){.band-grid{grid-template-columns:repeat(2,1fr)}.band-button:last-child{grid-column:1/-1}.page{padding-top:28px}}@media(max-width:430px){h1{font-size:44px}.band-button{min-height:92px;padding:14px}.binaural-panel{margin-top:30px}.playback-control{margin-top:34px}}'''
-    (root / "static/user.css").write_text(css.rstrip() + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES + "\n", encoding="utf-8")
+    (root / "static/user.css").write_text(css.rstrip() + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES + "\n/* single-home-v10 */\n" + CONTINUOUS_CHORD_STYLES + "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES + "\n", encoding="utf-8")
     (root / "static/custom_synth.js").write_text("window.ResonaCustomSynth = { version: 1, configure(engine) { engine.config.carrier = engine.config.ambient.droneFrequency; } };\n", encoding="utf-8")
     icon_paths = {"home": "M3 12h3l2-6 4 12 3-9 2 3h4"}
     for icon_name, path_data in icon_paths.items():
