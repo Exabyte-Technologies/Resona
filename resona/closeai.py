@@ -61,14 +61,32 @@ def validate_base_url(value):
 def get_provider_settings():
     database_key = _setting("closeai_api_key")
     environment_key = current_app.config.get("CLOSEAI_API_KEY", "").strip()
+    database_base_url = _setting("closeai_base_url")
+    database_model = _setting("closeai_model")
     prefer_environment = current_app.config.get("CLOSEAI_PREFER_ENV", False) and environment_key
-    base_url = current_app.config["CLOSEAI_BASE_URL"] if prefer_environment else (_setting("closeai_base_url") or current_app.config["CLOSEAI_BASE_URL"])
-    model = current_app.config["CLOSEAI_MODEL"] if prefer_environment else (_setting("closeai_model") or current_app.config["CLOSEAI_MODEL"])
+    # Saving a key in the admin interface is an explicit runtime override and
+    # must take effect immediately. Managed environment settings are the
+    # fallback when no admin key is stored, avoiding accidental stale metadata.
+    if database_key:
+        api_key = database_key
+        base_url = database_base_url or current_app.config["CLOSEAI_BASE_URL"]
+        model = database_model or current_app.config["CLOSEAI_MODEL"]
+        key_source = "admin"
+    elif prefer_environment:
+        api_key = environment_key
+        base_url = current_app.config["CLOSEAI_BASE_URL"]
+        model = current_app.config["CLOSEAI_MODEL"]
+        key_source = "environment"
+    else:
+        api_key = environment_key
+        base_url = database_base_url or current_app.config["CLOSEAI_BASE_URL"]
+        model = database_model or current_app.config["CLOSEAI_MODEL"]
+        key_source = "environment" if environment_key else "none"
     return {
-        "api_key": environment_key if prefer_environment else (database_key or environment_key),
+        "api_key": api_key,
         "base_url": validate_base_url(base_url),
         "model": model,
-        "key_source": "environment" if prefer_environment else ("admin" if database_key else ("environment" if environment_key else "none")),
+        "key_source": key_source,
     }
 
 

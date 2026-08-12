@@ -959,13 +959,32 @@ def test_server_proxy_resolves_admin_key_without_exposing_it(app, monkeypatch):
     assert API_KEY_PLACEHOLDER not in json.dumps(captured)
 
 
-def test_managed_deployment_environment_provider_overrides_stale_database_settings(app):
+def test_managed_deployment_honors_explicit_admin_provider_key_over_environment(app):
     from resona.closeai import get_provider_settings
 
     with app.app_context():
         db = get_db()
-        db.execute("UPDATE settings SET value = 'stale-db-key' WHERE key = 'closeai_api_key'")
-        db.execute("UPDATE settings SET value = 'stale-db-model' WHERE key = 'closeai_model'")
+        db.execute("UPDATE settings SET value = 'new-admin-key' WHERE key = 'closeai_api_key'")
+        db.execute("UPDATE settings SET value = 'admin-selected-model' WHERE key = 'closeai_model'")
+        db.commit()
+        app.config.update(
+            CLOSEAI_API_KEY="current-environment-key",
+            CLOSEAI_MODEL="gpt-5.6-sol",
+            CLOSEAI_PREFER_ENV=True,
+        )
+        provider = get_provider_settings()
+    assert provider["api_key"] == "new-admin-key"
+    assert provider["model"] == "admin-selected-model"
+    assert provider["key_source"] == "admin"
+
+
+def test_managed_deployment_falls_back_to_environment_after_admin_key_is_cleared(app):
+    from resona.closeai import get_provider_settings
+
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE settings SET value = '' WHERE key = 'closeai_api_key'")
+        db.execute("UPDATE settings SET value = 'old-db-model' WHERE key = 'closeai_model'")
         db.commit()
         app.config.update(
             CLOSEAI_API_KEY="current-environment-key",
@@ -1020,6 +1039,7 @@ def test_generated_content_cannot_escape_shell(app):
 
 
 def test_admin_login_is_separate_and_protected(app, client):
+    app.config.update(CLOSEAI_API_KEY="environment-key", CLOSEAI_MODEL="gpt-environment", CLOSEAI_PREFER_ENV=True)
     with app.app_context():
         from werkzeug.security import generate_password_hash
         db = get_db()
@@ -1042,6 +1062,12 @@ def test_admin_login_is_separate_and_protected(app, client):
     assert b"Configured via admin" in dashboard.data
     assert b"sk-never-render-this" not in dashboard.data
     assert b'value="160"' in dashboard.data
+    with app.app_context():
+        from resona.closeai import get_provider_settings
+        provider = get_provider_settings()
+        assert provider["api_key"] == "sk-never-render-this"
+        assert provider["model"] == "gpt-admin-test"
+        assert provider["key_source"] == "admin"
 
 
 def test_environment_admin_is_created_and_can_log_in(tmp_path):
