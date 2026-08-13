@@ -89,9 +89,10 @@ def trace_agent_debug(event, **details):
 
 
 class WorkspaceTools:
-    def __init__(self, username, user_id):
+    def __init__(self, username, user_id, require_memory=True):
         self.username = username
         self.user_id = user_id
+        self.require_memory = require_memory
         self.memory_read = False
         self.memory_written = False
         self.workspace_changed = False
@@ -312,15 +313,25 @@ class WorkspaceTools:
         return _result(ok=True, checked=sorted(set(checked)))
 
     def tool_finish(self, summary):
-        if not self.memory_read:
+        if self.require_memory and not self.memory_read:
             raise ValueError("Read the Resona memory before finishing so prior context is not lost")
-        if self.workspace_changed and not self.memory_written:
+        if self.require_memory and self.workspace_changed and not self.memory_written:
             raise ValueError("Record the useful outcome or next steps with write_memory before finishing")
         return _result(ok=True, summary=str(summary)[:1000])
 
 
-def build_agent_messages(base_prompt, user_prompt, skills, notes, navigation, max_steps):
+def build_agent_messages(base_prompt, user_prompt, skills, notes, navigation, max_steps, rapid=False):
     skill_text = "\n".join(f"- {skill['name']}: {skill['description']} ({skill['endpoint'] or 'no endpoint'})" for skill in skills) or "- No extra skills are installed."
+    memory_guidance = (
+        """RAPID MODE IS ACTIVE. Complete the request with as few model turns and tool calls as practical while preserving correctness. Use the navigation and user memory already supplied in this prompt. Calls to read_memory and write_memory are optional and should normally be skipped. Inspect only directly relevant files, batch independent tool calls in one turn, prefer targeted edits, avoid broad exploration and repeated reads, validate the workspace after editing, fix any reported issue, and finish immediately once the smallest complete high-quality solution is validated. Do not skip a necessary file read, safety boundary, accessibility requirement, or validation merely to save a call."""
+        if rapid else
+        """Memory is part of your working method, not an afterthought. Near the beginning of every run, call read_memory (normally with name `all`) before deciding on an approach. Re-read the relevant section whenever the task spans many steps or prior decisions become unclear. Use write_memory at useful milestones: keep `plan` current with the goal, discoveries, completed work, and remaining checks; put durable user preferences and design decisions in `notes`; put completed modifications and important errors plus their solutions in `changelog`. Record concise facts that will help a future run, not generic narration, private credentials, or full file contents. Before finish, make sure memory reflects material changes and any unresolved next step."""
+    )
+    start_guidance = (
+        "Begin with a targeted list/read of only the files needed for this request; rely on the supplied context and skip optional memory bookkeeping."
+        if rapid else
+        "Begin by reading memory, then list and read relevant files."
+    )
     system = f"""{base_prompt}
 
 You are an autonomous Resona workspace agent. Work like a coding agent: inspect the workspace, use tools, observe their results, and continue for as many turns as necessary until the user's request is genuinely satisfied. Do not stop after proposing code. Use finish only after changes are written and coherent.
@@ -337,9 +348,9 @@ For shell capabilities, an inline page script may call `parent.postMessage({{typ
 
 The ambient generator is a six-layer native Web Audio synth: drone, harmonic pad, analog drift, weather texture, high shimmer, and felt anchor, followed by tonal shaping, saturation, chorus, compression, convolution reverb, filtered delay, and limiting. Manual mode uses the selected tonal centre and the atmosphere's slow internal harmony. Generated mode disables that internal chord cycle. The browser-only chord model is exposed through `generateChordProgression` with `seedChords`, `length`, `duration` from 2-120 seconds per chord, `temperature`, `topK`, `greedy`, and optional `continuous`; applying a generated progression automatically selects Generated mode. Continuous mode can also be changed with `setContinuousChordMode` and boolean `enabled`. Playback actions are `toggleChordProgression`, `stopChordProgression`, and `replayChordProgression`. Prefer the automatic chord controls already used by the default page: `data-chord-card`, `data-chord-seed`, `data-chord-length`, `data-chord-duration`, `data-chord-temperature`, `data-chord-top-k`, `data-chord-greedy`, `data-chord-continuous`, `data-chord-transition`, `data-binaural-chord-transition`, `data-chord-generate`, `data-chord-play`, `data-chord-stop`, and `data-chord-replay`. Continuous mode prepares two sets before playback, keeps one set ready, and generates the following set while the current one plays. Generated chords are simplified into one diatonic key and retune every pitched synth layer plus the binaural carrier at each chord boundary; weather texture stays pitchless and the independent noise generator is unaffected. Atmosphere changes alter timbre without interrupting Generated playback. The selected binaural beat difference remains constant while its left and right frequencies move around the active chord root. Output is the synth's own pre-mixer trim; ambient volume and master volume remain independent. Do not invent unsupported message actions or argument names. It may request safe account data with `{{type: 'resona:request', resource: 'profile'}}` or `{{type: 'resona:request', resource: 'history'}}`. Listen for `message` events named `resona:audio-state`, `resona:chord-result`, `resona:chord-status`, `resona:chord-pipeline`, `resona:profile`, or `resona:history` to receive results. Use ordinary page-local JavaScript directly for custom controls such as breathing timers, tabs, accordions, and animations. HTML closing tags must be literal, such as `</script>`; never put a backslash before `/script` in an HTML closing tag and never insert literal `\n` text in place of line breaks.
 
-Memory is part of your working method, not an afterthought. Near the beginning of every run, call read_memory (normally with name `all`) before deciding on an approach. Re-read the relevant section whenever the task spans many steps or prior decisions become unclear. Use write_memory at useful milestones: keep `plan` current with the goal, discoveries, completed work, and remaining checks; put durable user preferences and design decisions in `notes`; put completed modifications and important errors plus their solutions in `changelog`. Record concise facts that will help a future run, not generic narration, private credentials, or full file contents. Before finish, make sure memory reflects material changes and any unresolved next step.
+{memory_guidance}
 
-Begin by reading memory, then list and read relevant files. For any visual or UI request, inspect both the relevant HTML pages and their CSS. The default workspace begins with a simplified Home page and a full Advanced audio page; add more pages or navigation only when the user asks. Produce complete, styled, usable interfaces—not prose, summaries, placeholder words such as "content", or descriptions of intended changes. Preserve existing functionality unless the user asks to remove it. Theme requests should normally update the shared stylesheet rather than replace page markup. Prefer targeted replacements when practical. Keep nav.json valid. Every page you design or change must remain comfortable and readable on phones down to 320px: include the viewport meta tag, prevent horizontal overflow, reflow columns, use at least 16px body text and normally at least 12px supporting text on phones, provide approximately 44px touch targets, and account for mobile safe areas around fixed controls. A snapshot already exists, so destructive workspace edits remain recoverable. If the user asks to revert, use list_snapshots and restore_snapshot rather than manually deleting or reconstructing files.
+{start_guidance} For any visual or UI request, inspect both the relevant HTML pages and their CSS. The default workspace begins with a simplified Home page and a full Advanced audio page; add more pages or navigation only when the user asks. Produce complete, styled, usable interfaces—not prose, summaries, placeholder words such as "content", or descriptions of intended changes. Preserve existing functionality unless the user asks to remove it. Theme requests should normally update the shared stylesheet rather than replace page markup. Prefer targeted replacements when practical. Keep nav.json valid. Every page you design or change must remain comfortable and readable on phones down to 320px: include the viewport meta tag, prevent horizontal overflow, reflow columns, use at least 16px body text and normally at least 12px supporting text on phones, provide approximately 44px touch targets, and account for mobile safe areas around fixed controls. A snapshot already exists, so destructive workspace edits remain recoverable. If the user asks to revert, use list_snapshots and restore_snapshot rather than manually deleting or reconstructing files.
 
 Available registered skills:
 {skill_text}
@@ -353,9 +364,9 @@ User memory:
     return [{"role": "system", "content": system}, {"role": "user", "content": user_prompt}]
 
 
-def run_agent(username, user_id, user_prompt, credential, base_prompt, skills, notes, navigation, max_steps):
-    messages = build_agent_messages(base_prompt, user_prompt, skills, notes, navigation, max_steps)
-    workspace = WorkspaceTools(username, user_id)
+def run_agent(username, user_id, user_prompt, credential, base_prompt, skills, notes, navigation, max_steps, rapid=False):
+    messages = build_agent_messages(base_prompt, user_prompt, skills, notes, navigation, max_steps, rapid=rapid)
+    workspace = WorkspaceTools(username, user_id, require_memory=not rapid)
     tools_used = []
     trace_agent_debug(
         "run_started",
@@ -363,15 +374,18 @@ def run_agent(username, user_id, user_prompt, credential, base_prompt, skills, n
         user_id=user_id,
         user_prompt=user_prompt,
         max_steps=max_steps,
+        rapid=rapid,
         available_skills=[skill["name"] for skill in skills],
     )
     for step in range(1, max_steps + 1):
         remaining = max_steps - step
         memory_reminder = ""
-        if not workspace.memory_read:
+        if not rapid and not workspace.memory_read:
             memory_reminder = " Start by calling read_memory before planning or editing."
-        elif workspace.workspace_changed and not workspace.memory_written:
+        elif not rapid and workspace.workspace_changed and not workspace.memory_written:
             memory_reminder = " Keep plan, notes, or changelog memory current with write_memory before finishing."
+        elif rapid:
+            memory_reminder = " Rapid mode is active: batch necessary work, skip optional memory bookkeeping, validate once edits are complete, and finish at the earliest complete point."
         messages.append({
             "role": "system",
             "content": (

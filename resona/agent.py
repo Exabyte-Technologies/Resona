@@ -58,6 +58,7 @@ def modify():
     data = request.get_json(silent=True) or {}
     prompt = str(data.get("prompt", "")).strip()
     credential = data.get("credential")
+    rapid = data.get("rapid") is True
     request_id = str(data.get("request_id", "")).strip() or secrets.token_urlsafe(24)
     if not prompt or len(prompt) > 4000:
         abort(400, "Enter a prompt between 1 and 4,000 characters")
@@ -111,18 +112,20 @@ def modify():
             user_id=g.user["id"],
             user_prompt=prompt,
             credential=credential,
+            rapid=rapid,
             **context,
         )
-        plan_path = safe_path(g.user["username"], "memory/plan.md")
-        existing_plan = plan_path.read_text(encoding="utf-8") if plan_path.exists() else "# Vibe modification log\n"
-        stamp = datetime.now(timezone.utc).isoformat()
         summary = str(result["summary"])[:1000]
-        tool_names = ", ".join(result["tools"]) or "none"
-        write_user_file(
-            g.user["username"],
-            "memory/plan.md",
-            existing_plan + f"\n## {stamp}\n{summary}\nSteps: {result['steps']}\nTools: {tool_names}\nSnapshot: `{snapshot}`\n",
-        )
+        if not rapid:
+            plan_path = safe_path(g.user["username"], "memory/plan.md")
+            existing_plan = plan_path.read_text(encoding="utf-8") if plan_path.exists() else "# Vibe modification log\n"
+            stamp = datetime.now(timezone.utc).isoformat()
+            tool_names = ", ".join(result["tools"]) or "none"
+            write_user_file(
+                g.user["username"],
+                "memory/plan.md",
+                existing_plan + f"\n## {stamp}\n{summary}\nSteps: {result['steps']}\nTools: {tool_names}\nSnapshot: `{snapshot}`\n",
+            )
         db.execute("UPDATE agent_runs SET summary = ?, steps = ?, status = 'complete' WHERE id = ?", (summary[:500], result["steps"], run.lastrowid))
         db.commit()
         trace_agent_debug("request_completed", run_id=run.lastrowid, username=g.user["username"], snapshot=snapshot, summary=summary, steps=result["steps"], tools=result["tools"])

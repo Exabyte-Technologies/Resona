@@ -351,7 +351,58 @@ def test_agent_captcha_dialog_enables_continue_from_solve_event_token():
     player_js = (Path(__file__).parents[1] / "resona/static/js/player.js").read_text()
     assert "event.detail?.token" in player_js
     assert "continueAgentRequest.disabled = !agentCaptchaToken" in player_js
-    assert "sendAgentRequest(pendingAgentPrompt, token)" in player_js
+    assert "sendAgentRequest(pendingAgentPrompt, token, pendingAgentRequestId, pendingAgentMode)" in player_js
+
+
+def test_player_offers_rapid_agent_mode_and_preserves_it_during_recovery():
+    from pathlib import Path
+
+    root = Path(__file__).parents[1]
+    player_html = (root / "resona/templates/player/index.html").read_text()
+    player_js = (root / "resona/static/js/player.js").read_text()
+    assert 'data-agent-mode="balanced"' in player_html
+    assert 'data-agent-mode="rapid"' in player_html
+    assert "rapid:mode === 'rapid'" in player_js
+    assert "JSON.stringify({requestId,value,mode})" in player_js
+    assert "active.mode || 'balanced'" in player_js
+
+
+def test_rapid_agent_mode_skips_memory_requirements_but_keeps_validation_guidance(app, registered):
+    from resona.agent_runtime import WorkspaceTools, build_agent_messages
+
+    system = build_agent_messages("Base", "Make a focused change", [], "Existing notes", '{"nav_items":[]}', 20, rapid=True)[0]["content"]
+    assert "RAPID MODE IS ACTIVE" in system
+    assert "read_memory and write_memory are optional" in system
+    assert "validate the workspace after editing" in system
+    with app.app_context():
+        user_id = get_db().execute("SELECT id FROM users WHERE username = 'listener'").fetchone()["id"]
+        tools = WorkspaceTools("listener", user_id, require_memory=False)
+        tools.workspace_changed = True
+        assert json.loads(tools.execute("finish", {"summary": "Focused update complete"}))["ok"] is True
+
+
+def test_rapid_agent_request_reaches_runtime_and_does_not_append_plan(app, registered, monkeypatch):
+    from resona.prompt_safety import SafetyDecision
+
+    captured = {}
+
+    def fake_run_agent(**kwargs):
+        captured.update(kwargs)
+        return {"summary": "Rapid update complete", "steps": 2, "tools": ["read_file", "finish"]}
+
+    monkeypatch.setattr("resona.agent.review_agent_prompt", lambda *_args: SafetyDecision(True))
+    monkeypatch.setattr("resona.agent.run_agent", fake_run_agent)
+    with app.app_context():
+        before = safe_path("listener", "memory/plan.md").read_text()
+    response = registered.post(
+        "/agent/modify",
+        headers={"X-CSRF-Token": session_csrf(registered)},
+        json={"prompt": "Make one focused interface change", "credential": API_KEY_PLACEHOLDER, "rapid": True},
+    )
+    assert response.status_code == 200
+    assert captured["rapid"] is True
+    with app.app_context():
+        assert safe_path("listener", "memory/plan.md").read_text() == before
 
 
 def test_resend_sends_registration_and_password_reset_emails_without_exposing_secrets(app, client, captcha, monkeypatch):
