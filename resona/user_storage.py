@@ -555,6 +555,25 @@ html{-webkit-text-size-adjust:100%;overflow-x:hidden}body{overflow-x:hidden;font
 }
 '''
 
+DYNAMIC_BACKGROUND_STYLES = '''
+/* dynamic-background-v1 */
+html{background:#10140f}
+body{background:
+radial-gradient(circle at 14% 18%,rgba(67,91,55,.34),transparent 34%),
+radial-gradient(circle at 88% 26%,rgba(39,67,58,.28),transparent 36%),
+radial-gradient(circle at 48% 92%,rgba(73,67,43,.18),transparent 38%),
+linear-gradient(135deg,#10140f,#131a13 48%,#101612);
+background-size:145% 145%,155% 155%,150% 150%,180% 180%;
+background-position:0% 8%,100% 12%,48% 100%,0% 50%;
+animation:resona-gradient-shift 24s ease-in-out infinite alternate}
+@keyframes resona-gradient-shift{
+0%{background-position:0% 8%,100% 12%,48% 100%,0% 50%}
+50%{background-position:12% 22%,86% 4%,58% 88%,50% 50%}
+100%{background-position:24% 4%,76% 24%,38% 82%,100% 50%}
+}
+@media(prefers-reduced-motion:reduce){body{animation:none}}
+'''
+
 
 def _ensure_single_home_styles(root):
     css_path = root / "static/user.css"
@@ -578,6 +597,8 @@ def _ensure_single_home_styles(root):
         additions += "\n" + BINAURAL_TUNING_STYLES
     if "mobile-readability-v1" not in css:
         additions += "\n" + MOBILE_READABILITY_STYLES
+    if "dynamic-background-v1" not in css:
+        additions += "\n" + DYNAMIC_BACKGROUND_STYLES
     if additions:
         css_path.write_text(css.rstrip() + additions + "\n", encoding="utf-8")
 
@@ -711,7 +732,7 @@ def initialize_user_storage(username):
     (root / "memory/plan.md").write_text("# Vibe modification log\n\n", encoding="utf-8")
     (root / "memory/changelog.md").write_text("# Resona changelog\n\n", encoding="utf-8")
     css = '''*{box-sizing:border-box}html,body{min-height:100%;background:#121611}body{margin:0;color:#f5f1e8;font:500 16px/1.5 Inter,system-ui,sans-serif}.page{width:min(1040px,100%);margin:auto;padding:clamp(28px,6vw,72px) clamp(20px,5vw,54px) 150px}.eyebrow{margin:0;color:#b9e68c;text-transform:uppercase;letter-spacing:.18em;font-size:11px;font-weight:800}h1{font:600 clamp(42px,8vw,82px)/.98 Georgia,serif;letter-spacing:-.05em;margin:10px 0 14px}.intro{max-width:610px;margin:0;color:#b7b5ae}.binaural-panel{margin-top:clamp(34px,6vw,68px)}.panel-heading p{margin:0;color:#858b81;font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}.panel-heading h2{margin:5px 0 18px;font:400 clamp(25px,4vw,36px) Georgia,serif}.band-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.band-button{min-height:116px;padding:18px;border:1px solid rgba(255,255,255,.1);border-radius:20px;background:#1b2019;color:#f5f1e8;text-align:left;cursor:pointer;transition:.22s}.band-button strong,.band-button span{display:block}.band-button strong{font-size:18px}.band-button span{margin-top:8px;color:#8e948a;font-size:11px}.band-button:hover,.band-button.active{transform:translateY(-2px);border-color:#8daf6e;background:#24301f;box-shadow:0 14px 34px #0005}.band-button.active strong{color:#c4ef99}.playback-control{display:flex;flex-direction:column;align-items:center;margin-top:clamp(36px,7vw,72px)}.playback-control>p{color:#9ca396;font-size:12px}.play-toggle{display:flex;align-items:center;justify-content:center;gap:12px;width:160px;height:64px;border:0;border-radius:999px;background:#b9e68c;color:#15200f;box-shadow:0 0 0 9px rgba(185,230,140,.07),0 18px 45px #0007;cursor:pointer}.play-toggle:hover{transform:scale(1.03)}.play-toggle.playing{background:#f1eee5}.play-symbol{font-size:14px}.playback-control small{margin-top:15px;color:#696e66;font-size:10px;text-transform:uppercase;letter-spacing:.12em}@media(max-width:760px){.band-grid{grid-template-columns:repeat(2,1fr)}.band-button:last-child{grid-column:1/-1}.page{padding-top:28px}}@media(max-width:430px){h1{font-size:44px}.band-button{min-height:92px;padding:14px}.binaural-panel{margin-top:30px}.playback-control{margin-top:34px}}'''
-    (root / "static/user.css").write_text(css.rstrip() + "\n" + SIMPLE_HOME_STYLES + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES + "\n/* single-home-v10 */\n" + CONTINUOUS_CHORD_STYLES + "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES + "\n" + AMBIENT_SYNTH_STYLES + "\n" + BINAURAL_TUNING_STYLES + "\n" + MOBILE_READABILITY_STYLES + "\n", encoding="utf-8")
+    (root / "static/user.css").write_text(css.rstrip() + "\n" + SIMPLE_HOME_STYLES + "\n/* single-home-v6 */\n" + SINGLE_HOME_STYLES + "\n/* single-home-v7 */\n" + CHORD_PROGRESSION_STYLES + "\n/* single-home-v10 */\n" + CONTINUOUS_CHORD_STYLES + "\n/* single-home-v12 */\n" + CHORD_TRANSITION_STYLES + "\n" + AMBIENT_SYNTH_STYLES + "\n" + BINAURAL_TUNING_STYLES + "\n" + MOBILE_READABILITY_STYLES + "\n" + DYNAMIC_BACKGROUND_STYLES + "\n", encoding="utf-8")
     (root / "static/custom_synth.js").write_text("window.ResonaCustomSynth = { version: 1, configure(engine) { engine.config.carrier = engine.config.ambient.droneFrequency; } };\n", encoding="utf-8")
     _ensure_default_navigation_icons(root)
     pages = {"home.html": default_home_page(), "advanced.html": default_advanced_page()}

@@ -169,6 +169,9 @@ def test_registration_creates_isolated_default_workspace(app, registered):
         assert "mobile-readability-v1" in user_css
         assert "ambient-synth-v1" in user_css
         assert "binaural-tuning-v1" in user_css
+        assert "dynamic-background-v1" in user_css
+        assert "resona-gradient-shift 24s ease-in-out infinite alternate" in user_css
+        assert "@media(prefers-reduced-motion:reduce){body{animation:none}}" in user_css
         assert "@media(max-width:600px)" in user_css
         assert "body{overflow-x:hidden;font-size:16px" in user_css
         assert "min-height:48px" in user_css
@@ -642,6 +645,17 @@ def test_player_upgrades_untouched_single_home_to_ambient_generator(app, registe
         assert "Ambient music generator" in home
         assert "data-ambient-toggle" in home
         assert "single-home-v7" in styles
+
+
+def test_player_adds_dynamic_background_to_existing_default_workspace(app, registered):
+    with app.app_context():
+        css_path = safe_path("listener", "static/user.css")
+        css_path.write_text(css_path.read_text().replace("/* dynamic-background-v1 */", "/* removed-dynamic-background */", 1), encoding="utf-8")
+    assert registered.get("/player/").status_code == 200
+    with app.app_context():
+        styles = safe_path("listener", "static/user.css").read_text()
+        assert styles.count("/* dynamic-background-v1 */") == 1
+        assert "@keyframes resona-gradient-shift" in styles
 
 
 def test_player_upgrades_untouched_ambient_home_to_master_volume_card(app, registered):
