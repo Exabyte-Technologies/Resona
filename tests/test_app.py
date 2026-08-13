@@ -35,10 +35,15 @@ def test_resona_favicon_is_available_on_every_page(client):
     assert response.status_code == 200
     assert b'rel="icon" type="image/png" sizes="64x64" href="/static/favicon.png"' in response.data
     assert b'rel="icon" type="image/png" sizes="256x256" href="/static/favicon-256.png"' in response.data
+    assert b'rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png"' in response.data
     favicon = client.get("/static/favicon.png")
     assert favicon.status_code == 200
     assert favicon.mimetype == "image/png"
     assert favicon.data.startswith(b"\x89PNG\r\n\x1a\n")
+    apple_icon = client.get("/static/apple-touch-icon.png")
+    assert apple_icon.status_code == 200
+    assert apple_icon.mimetype == "image/png"
+    assert apple_icon.data.startswith(b"\x89PNG\r\n\x1a\n")
 
 
 def test_agent_prompt_and_model_admin_edits_survive_database_reinitialization(app):
