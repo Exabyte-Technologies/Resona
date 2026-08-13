@@ -15,7 +15,7 @@ Resona is an adaptive healing-music web application. It combines a procedural We
 - A fail-closed prompt safety review that rejects potentially harmful, illegal, abusive, privacy-invasive, or safeguard-evasion requests before snapshots or agent execution
 - Multi-turn autonomous agent runtime with list, read, write, replace, move, delete, navigation, validation, and registered-skill tools
 - Per-user 1 GB quotas, authenticated storage routes, path isolation, snapshots, and rollback
-- Server-side CloseAI proxying with a client credential placeholder and OpenAI-compatible chat integration
+- Server-side OpenAI-compatible API proxying with a client credential placeholder
 - Resend-powered registration welcome emails and secure password reset links
 - Admin controls for shared AI and email provider configuration, users, prompts, skills, and additional admins
 
@@ -39,6 +39,8 @@ This enables Flask debug mode and prints each user's AI prompt, step progress, m
 
 Set `SECRET_KEY` before deployment. To enable Vibe Agent calls, either set `CLOSEAI_API_KEY` on the server or save it from the admin control center. Browsers send only the literal `{{RESONA_SERVER_API_KEY}}` placeholder; Resona resolves the active server key, base URL, and model and makes the provider request itself. No provider key is generated for or exposed to an individual user. User workspaces default to `instance/storage`; use `RESONA_STORAGE_ROOT` to mount a dedicated server volume.
 
+`CLOSEAI_BASE_URL` may point to any public HTTPS service implementing the OpenAI chat-completions protocol. Resona accepts a host root, a versioned base such as `https://api.openai.com/v1` or `https://openrouter.ai/api/v1`, or a complete URL ending in `/chat/completions`. Localhost, credential-bearing URLs, and private-network IP addresses remain blocked to prevent server-side request abuse.
+
 Set `CLOSEAI_PREFER_ENV=1` in managed deployments so the current environment key, base URL, and model are used by default instead of old provider metadata retained in SQLite. A non-empty API key explicitly saved through the admin interface is a deliberate runtime override and takes effect immediately; clearing that saved key falls back to the environment. The bundled GitHub Actions deployment enables this behavior automatically.
 
 To enable email, save a Resend API key, sender name, and sender email in the admin control center, or set `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and `RESEND_FROM_NAME` on the server. Registration sends a 24-hour verification link and fails closed if production email delivery is unavailable. New accounts remain signed out and cannot sign in until that link is used. Email changes stay pending until the new address is verified; password recovery uses a separate single-use link that expires after 30 minutes. Set `PUBLIC_BASE_URL` to the public HTTPS origin in production so emailed links always use the canonical application address. The sender domain must be verified in Resend.
@@ -47,7 +49,7 @@ Login, registration, and account edits use the self-hosted Cap.js proof-of-work 
 
 When `ADMIN_PASSWORD` is non-empty, startup creates or synchronizes the administrator named by `ADMIN_USERNAME` (default `admin`). `ADMIN_EMAIL` is optional and defaults to `<username>@resona.local`. Restart the application after changing these values.
 
-The Vibe Agent continues calling the model and workspace tools until it explicitly finishes with a valid workspace. `AGENT_MAX_STEPS` defaults to 80 and can be adjusted from 1–200 in the admin provider panel. On every turn the agent receives its current step, total limit, and remaining budget, with instructions to avoid redundant work without rushing or skipping validation. Every run creates one rollback snapshot before the first tool call. Registered HTTPS skills are exposed through `invoke_skill`; the server credential is attached only for approved CloseAI hosts, and direct image or audio results can be saved into the user's quota-controlled storage.
+The Vibe Agent continues calling the model and workspace tools until it explicitly finishes with a valid workspace. `AGENT_MAX_STEPS` defaults to 80 and can be adjusted from 1–200 in the admin provider panel. On every turn the agent receives its current step, total limit, and remaining budget, with instructions to avoid redundant work without rushing or skipping validation. Every run creates one rollback snapshot before the first tool call. Registered HTTPS skills are exposed through `invoke_skill`; the server credential is attached only when a skill uses the configured provider's exact HTTPS origin, and direct image or audio results can be saved into the user's quota-controlled storage.
 
 Sandboxed user pages can persist application data through the injected `window.ResonaFiles` bridge. Its Promise-based methods are `list`, `read`, `write`, `upload`, `mkdir`, `move`, and `delete`; all paths are relative to the current user's private `data/` directory. Requests are relayed through the authenticated player shell with CSRF, path, extension, per-file size, and account-quota validation. The Vibe Agent receives the complete API contract in its system instructions so it can build durable journals, settings, collections, and upload interfaces without direct network or session access.
 

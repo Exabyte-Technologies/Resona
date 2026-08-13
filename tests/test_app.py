@@ -1278,6 +1278,58 @@ def test_server_proxy_resolves_admin_key_without_exposing_it(app, monkeypatch):
     assert API_KEY_PLACEHOLDER not in json.dumps(captured)
 
 
+def test_openai_compatible_provider_urls_are_normalized_without_host_allowlist():
+    from resona.closeai import chat_completions_url, validate_base_url
+
+    assert validate_base_url("https://api.openai.com/v1/") == "https://api.openai.com/v1"
+    assert chat_completions_url("https://api.openai.com") == "https://api.openai.com/v1/chat/completions"
+    assert chat_completions_url("https://openrouter.ai/api/v1") == "https://openrouter.ai/api/v1/chat/completions"
+    assert chat_completions_url("https://models.example.com/custom") == "https://models.example.com/custom/v1/chat/completions"
+    full_url = "https://azure.example.com/openai/deployments/resona/chat/completions?api-version=2026-01-01"
+    assert chat_completions_url(full_url) == full_url
+
+
+def test_provider_url_rejects_unsafe_non_public_targets():
+    from resona.closeai import validate_base_url
+
+    for url in (
+        "http://api.openai.com/v1",
+        "https://localhost/v1",
+        "https://127.0.0.1/v1",
+        "https://10.0.0.8/v1",
+        "https://[::1]/v1",
+        "https://user:password@api.example.com/v1",
+        "https://api.example.com/v1#secret",
+    ):
+        try:
+            validate_base_url(url)
+            assert False, url
+        except ValueError:
+            pass
+
+
+def test_chat_does_not_duplicate_v1_for_standard_openai_base(app, monkeypatch):
+    from resona.closeai import chat
+
+    captured = {}
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{}"}}]}
+
+    monkeypatch.setattr("resona.closeai.requests.post", lambda url, **kwargs: (captured.update(url=url, **kwargs) or Response()))
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE settings SET value = 'sk-compatible' WHERE key = 'closeai_api_key'")
+        db.execute("UPDATE settings SET value = 'https://openrouter.ai/api/v1' WHERE key = 'closeai_base_url'")
+        db.commit()
+        chat([{"role": "user", "content": "hello"}], API_KEY_PLACEHOLDER)
+    assert captured["url"] == "https://openrouter.ai/api/v1/chat/completions"
+
+
 def test_managed_deployment_honors_explicit_admin_provider_key_over_environment(app):
     from resona.closeai import get_provider_settings
 

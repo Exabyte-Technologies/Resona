@@ -16,11 +16,11 @@
   </section>
   <div class="admin-grid">
     <section class="admin-card wide">
-      <p class="kicker">Server-side proxy</p><h2>CloseAI provider</h2>
-      <p class="muted">The browser sends a placeholder. Resona replaces it with this server-owned credential and calls CloseAI on the user's behalf.</p>
+      <p class="kicker">Server-side proxy</p><h2>OpenAI-compatible provider</h2>
+      <p class="muted">The browser sends a placeholder. Resona replaces it with this server-owned credential and calls any public HTTPS API that implements the OpenAI chat-completions protocol.</p>
       <form method="post" action="{{ url_for('admin.update_provider') }}" class="stack">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label>API base URL<input type="url" name="base_url" value="{{ provider.base_url }}" required></label>
+        <label>API base URL or chat-completions URL<input type="url" name="base_url" value="{{ provider.base_url }}" required><small>Examples: https://api.openai.com/v1, https://openrouter.ai/api/v1, or a full …/chat/completions endpoint. Local and private-network URLs are blocked.</small></label>
         <label>Model<input name="model" value="{{ provider.model }}" required></label>
         <label>Maximum agent steps<input type="number" name="agent_max_steps" min="1" max="200" value="{{ provider.agent_max_steps }}" required><small>The default is 80. The agent sees its current step and remaining budget so it can work efficiently without skipping validation.</small></label>
         <label>API key<input type="password" name="api_key" autocomplete="new-password" placeholder="{{ 'Configured via ' ~ provider.key_source if provider.key_configured else 'Paste server API key' }}"><small>The current key is never displayed or sent to users.</small></label>

@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import requests
 from flask import current_app
 
-from .closeai import ALLOWED_PROVIDER_HOSTS, agent_completion, get_provider_settings
+from .closeai import agent_completion, get_provider_settings
 from .db import get_db
 from .user_storage import ALLOWED_EXTENSIONS, restore_snapshot, safe_path, user_root, validate_content, validate_nav, write_user_bytes, write_user_file
 
@@ -260,10 +260,11 @@ class WorkspaceTools:
                 raise
         headers = {"Content-Type": "application/json"}
         provider_secret = ""
-        if parsed.hostname in ALLOWED_PROVIDER_HOSTS:
-            provider = get_provider_settings()
+        provider = get_provider_settings()
+        provider_url = urlparse(provider["base_url"])
+        if (parsed.scheme, parsed.hostname, parsed.port) == (provider_url.scheme, provider_url.hostname, provider_url.port):
             if not provider["api_key"]:
-                raise RuntimeError("No server-side CloseAI API key is configured")
+                raise RuntimeError("No server-side OpenAI-compatible API key is configured")
             provider_secret = provider["api_key"]
             headers["Authorization"] = f"Bearer {provider_secret}"
         payload = input if isinstance(input, dict) else {"input": input}

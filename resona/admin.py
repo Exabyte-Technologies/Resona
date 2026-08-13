@@ -218,7 +218,7 @@ def update_provider():
         if not max_steps.isdigit() or not 1 <= int(max_steps) <= 200:
             raise ValueError("Agent step limit must be between 1 and 200")
         db = get_db()
-        db.execute("INSERT INTO settings(key, value) VALUES ('closeai_base_url', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP", (base_url.rstrip("/"),))
+        db.execute("INSERT INTO settings(key, value) VALUES ('closeai_base_url', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP", (validate_base_url(base_url),))
         db.execute("INSERT INTO settings(key, value) VALUES ('closeai_model', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP", (model,))
         db.execute("INSERT INTO settings(key, value) VALUES ('agent_max_steps', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP", (max_steps,))
         if api_key or clear_key:
