@@ -30,6 +30,17 @@ def test_default_agent_prompt_and_model_are_configured_from_bundled_defaults(app
         assert get_provider_settings()["model"] == "gpt-5.6-sol"
 
 
+def test_resona_favicon_is_available_on_every_page(client):
+    response = client.get("/auth/login")
+    assert response.status_code == 200
+    assert b'rel="icon" type="image/png" sizes="64x64" href="/static/favicon.png"' in response.data
+    assert b'rel="icon" type="image/png" sizes="256x256" href="/static/favicon-256.png"' in response.data
+    favicon = client.get("/static/favicon.png")
+    assert favicon.status_code == 200
+    assert favicon.mimetype == "image/png"
+    assert favicon.data.startswith(b"\x89PNG\r\n\x1a\n")
+
+
 def test_agent_prompt_and_model_admin_edits_survive_database_reinitialization(app):
     from resona.db import init_db
 
