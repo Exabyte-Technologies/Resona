@@ -17,5 +17,7 @@
     {% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}
   {% endwith %}
   {% block body %}{% endblock %}
+  <script src="{{ url_for('static', filename='vendor/disable-devtool/disable-devtool.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/devtool-protection.js') }}"></script>
 </body>
 </html>

@@ -46,6 +46,24 @@ def test_resona_favicon_is_available_on_every_page(client):
     assert apple_icon.data.startswith(b"\x89PNG\r\n\x1a\n")
 
 
+def test_disable_devtool_is_self_hosted_and_enabled_without_blocking_editing(client):
+    response = client.get("/auth/login")
+    assert response.status_code == 200
+    assert b'/static/vendor/disable-devtool/disable-devtool.min.js' in response.data
+    assert b'/static/js/devtool-protection.js' in response.data
+    assert b"cdn.jsdelivr.net" not in response.data
+
+    library = client.get("/static/vendor/disable-devtool/disable-devtool.min.js")
+    assert library.status_code == 200
+    assert b"DisableDevtool" in library.data
+    integration = client.get("/static/js/devtool-protection.js").get_data(as_text=True)
+    assert "window.DisableDevtool" in integration
+    assert "disableMenu: true" in integration
+    assert "disableIframeParents: true" in integration
+    for editable_option in ("disableSelect", "disableInputSelect", "disableCopy", "disableCut", "disablePaste"):
+        assert f"{editable_option}: false" in integration
+
+
 def test_agent_prompt_and_model_admin_edits_survive_database_reinitialization(app):
     from resona.db import init_db
 
