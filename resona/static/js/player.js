@@ -178,7 +178,7 @@
   async function recoverAgentRequest(requestId, value) {
     const form = document.querySelector('#agent-form');
     rememberAgentRequest(requestId, value); form.classList.add('busy');
-    let missingChecks = 0;
+    let missingChecks = 0, connectionInterrupted = false;
     for (let attempt = 0; attempt < 1800; attempt += 1) {
       try {
         const response = await fetch(`/agent/status/${encodeURIComponent(requestId)}`, {cache:'no-store'});
@@ -190,9 +190,13 @@
           const data = await response.json();
           if (data.status === 'complete') { completeAgentRequest(data); return; }
           if (data.status === 'failed' || data.status === 'rejected') { forgetAgentRequest(); status.textContent = data.error || 'The agent request did not complete.'; form.classList.remove('busy'); return; }
-          status.innerHTML = '<span class="thinking"></span> Connection restored. Resona is still applying your changes…';
+          status.innerHTML = connectionInterrupted
+            ? '<span class="thinking"></span> Connection restored. Resona is still applying your changes…'
+            : '<span class="thinking"></span> Resona is still applying your changes…';
+          connectionInterrupted = false;
         }
       } catch (_error) {
+        connectionInterrupted = true;
         status.innerHTML = '<span class="thinking"></span> Connection interrupted. Waiting for Resona to finish safely…';
       }
       await wait(2000);

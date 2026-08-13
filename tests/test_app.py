@@ -1132,6 +1132,11 @@ def test_player_recovers_interrupted_agent_fetches_by_polling_status():
     assert "/agent/status/${encodeURIComponent(requestId)}" in player_js
     assert "sessionStorage.setItem(ACTIVE_AGENT_REQUEST" in player_js
     assert "Connection interrupted. Waiting for Resona to finish safely" in player_js
+    assert "let missingChecks = 0, connectionInterrupted = false" in player_js
+    assert "status.innerHTML = connectionInterrupted" in player_js
+    assert "connectionInterrupted = true" in player_js
+    assert "connectionInterrupted = false" in player_js
+    assert "Resona is still applying your changes" in player_js
 
 
 def test_agent_rejects_locally_detected_harm_before_snapshot_or_model(app, registered, monkeypatch):
