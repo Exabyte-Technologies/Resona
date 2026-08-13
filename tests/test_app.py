@@ -833,6 +833,13 @@ def test_user_page_ranges_drag_on_the_first_phone_touch(registered):
     assert "document.querySelectorAll('input[type=\"range\"]')" in page
     assert 'input[type="range"]{touch-action:none!important}' in page
     assert "control.style.touchAction = 'none'" in page
+    assert "control.addEventListener('touchstart'" in page
+    assert "control.addEventListener('touchmove'" in page
+    assert "{ passive:false }" in page
+    assert "event.changedTouches[0].clientX" in page
+    assert "matchingTouch(event.touches)" in page
+    assert "control.focus({ preventScroll:true })" in page
+    assert "'ontouchstart' in window" in page
     assert "event.pointerType !== 'touch' || control.disabled" in page
     assert "control.setPointerCapture?.(event.pointerId)" in page
     assert "setRangeFromPointer(control, event.clientX)" in page

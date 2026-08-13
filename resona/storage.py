@@ -50,8 +50,28 @@ PAGE_BRIDGE = r'''<script data-resona-bridge>
   };
   document.querySelectorAll('input[type="range"]').forEach(control => {
     control.style.touchAction = 'none';
+    let activeTouchId = null;
+    const matchingTouch = touchList => Array.from(touchList).find(touch => touch.identifier === activeTouchId);
+    control.addEventListener('touchstart', event => {
+      if (control.disabled || event.touches.length !== 1) return;
+      event.preventDefault();
+      activeTouchId = event.changedTouches[0].identifier;
+      control.focus({ preventScroll:true });
+      setRangeFromPointer(control, event.changedTouches[0].clientX);
+    }, { passive:false });
+    control.addEventListener('touchmove', event => {
+      const touch = matchingTouch(event.touches);
+      if (!touch || control.disabled) return;
+      event.preventDefault();
+      setRangeFromPointer(control, touch.clientX);
+    }, { passive:false });
+    const finishTouch = event => {
+      if (matchingTouch(event.changedTouches)) activeTouchId = null;
+    };
+    control.addEventListener('touchend', finishTouch, { passive:true });
+    control.addEventListener('touchcancel', finishTouch, { passive:true });
     control.addEventListener('pointerdown', event => {
-      if (event.pointerType !== 'touch' || control.disabled) return;
+      if (event.pointerType !== 'touch' || control.disabled || 'ontouchstart' in window) return;
       event.preventDefault();
       control.setPointerCapture?.(event.pointerId);
       setRangeFromPointer(control, event.clientX);
