@@ -1,4 +1,5 @@
 import ipaddress
+import time
 from urllib.parse import urlparse, urlunparse
 
 import requests
@@ -8,6 +9,7 @@ from .db import get_db
 
 
 API_KEY_PLACEHOLDER = "{{RESONA_SERVER_API_KEY}}"
+_LOW_REASONING_UNSUPPORTED = set()
 
 
 class ProviderHTTPError(RuntimeError):
@@ -132,23 +134,37 @@ def chat(messages, credential_placeholder):
     return response.json()["choices"][0]["message"]["content"]
 
 
-def agent_completion(messages, tools, credential_placeholder):
+def agent_completion(messages, tools, credential_placeholder, reasoning_effort=None, timeout=90):
     if credential_placeholder != API_KEY_PLACEHOLDER:
         raise ValueError("The client request did not contain the Resona credential placeholder")
     provider = get_provider_settings()
     if not provider["api_key"]:
         raise RuntimeError("No server-side OpenAI-compatible API key is configured")
-    response = requests.post(
-        chat_completions_url(provider["base_url"]),
-        headers={"Authorization": f"Bearer {provider['api_key']}", "Content-Type": "application/json"},
-        json={
-            "model": provider["model"],
-            "messages": messages,
-            "tools": tools,
-            "tool_choice": "auto",
-        },
-        timeout=90,
-    )
+    endpoint = chat_completions_url(provider["base_url"])
+    compatibility_key = (endpoint, provider["model"])
+    payload = {
+        "model": provider["model"],
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+    }
+    if reasoning_effort == "low" and compatibility_key not in _LOW_REASONING_UNSUPPORTED:
+        payload["reasoning_effort"] = "low"
+    request_options = {
+        "headers": {"Authorization": f"Bearer {provider['api_key']}", "Content-Type": "application/json"},
+        "timeout": timeout,
+    }
+    started_at = time.monotonic()
+    response = requests.post(endpoint, json=payload, **request_options)
+    if response.status_code == 400 and "reasoning_effort" in payload:
+        # OpenAI-format providers do not all implement optional reasoning
+        # controls. Remember the capability miss and retry the same turn using
+        # the portable payload instead of breaking Rapid mode.
+        _LOW_REASONING_UNSUPPORTED.add(compatibility_key)
+        compatible_payload = dict(payload)
+        compatible_payload.pop("reasoning_effort")
+        request_options["timeout"] = max(1, timeout - (time.monotonic() - started_at))
+        response = requests.post(endpoint, json=compatible_payload, **request_options)
     raise_for_provider_status(response)
     message = response.json()["choices"][0]["message"]
     if not isinstance(message, dict):
@@ -156,7 +172,7 @@ def agent_completion(messages, tools, credential_placeholder):
     return message
 
 
-def safety_completion(prompt, credential_placeholder):
+def safety_completion(prompt, credential_placeholder, timeout=45):
     if credential_placeholder != API_KEY_PLACEHOLDER:
         raise ValueError("The client request did not contain the Resona credential placeholder")
     provider = get_provider_settings()
@@ -173,9 +189,10 @@ def safety_completion(prompt, credential_placeholder):
     }
     request_options = {
         "headers": {"Authorization": f"Bearer {provider['api_key']}", "Content-Type": "application/json"},
-        "timeout": 45,
+        "timeout": timeout,
     }
     endpoint = chat_completions_url(provider["base_url"])
+    started_at = time.monotonic()
     response = requests.post(endpoint, json=payload, **request_options)
     try:
         raise_for_provider_status(response)
@@ -186,6 +203,7 @@ def safety_completion(prompt, credential_placeholder):
         # The policy still requires JSON-only output, and the caller validates it.
         compatible_payload = dict(payload)
         compatible_payload.pop("response_format")
+        request_options["timeout"] = max(1, timeout - (time.monotonic() - started_at))
         response = requests.post(endpoint, json=compatible_payload, **request_options)
         raise_for_provider_status(response)
     content = response.json()["choices"][0]["message"]["content"]

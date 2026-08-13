@@ -368,12 +368,16 @@ def test_player_offers_rapid_agent_mode_and_preserves_it_during_recovery():
 
 
 def test_rapid_agent_mode_skips_memory_requirements_but_keeps_validation_guidance(app, registered):
-    from resona.agent_runtime import WorkspaceTools, build_agent_messages
+    from resona.agent_runtime import RAPID_MAX_STEPS, RAPID_TOOL_DEFINITIONS, WorkspaceTools, build_agent_messages
 
-    system = build_agent_messages("Base", "Make a focused change", [], "Existing notes", '{"nav_items":[]}', 20, rapid=True)[0]["content"]
-    assert "RAPID MODE IS ACTIVE" in system
-    assert "read_memory and write_memory are optional" in system
-    assert "validate the workspace after editing" in system
+    system = build_agent_messages("X" * 20_000, "Make a focused change", [], "Existing notes", '{"nav_items":[]}', 20, rapid=True)[0]["content"]
+    assert "in RAPID MODE" in system
+    assert "Memory calls and notes are intentionally unavailable" in system
+    assert "validate_workspace and finish in that same turn" in system
+    assert len(system) < 7000
+    assert RAPID_MAX_STEPS == 3
+    assert "read_memory" not in {tool["function"]["name"] for tool in RAPID_TOOL_DEFINITIONS}
+    assert "write_memory" not in {tool["function"]["name"] for tool in RAPID_TOOL_DEFINITIONS}
     with app.app_context():
         user_id = get_db().execute("SELECT id FROM users WHERE username = 'listener'").fetchone()["id"]
         tools = WorkspaceTools("listener", user_id, require_memory=False)
@@ -385,12 +389,13 @@ def test_rapid_agent_request_reaches_runtime_and_does_not_append_plan(app, regis
     from resona.prompt_safety import SafetyDecision
 
     captured = {}
+    safety_timeouts = []
 
     def fake_run_agent(**kwargs):
         captured.update(kwargs)
         return {"summary": "Rapid update complete", "steps": 2, "tools": ["read_file", "finish"]}
 
-    monkeypatch.setattr("resona.agent.review_agent_prompt", lambda *_args: SafetyDecision(True))
+    monkeypatch.setattr("resona.agent.review_agent_prompt", lambda *_args: (safety_timeouts.append(_args[2]) or SafetyDecision(True)))
     monkeypatch.setattr("resona.agent.run_agent", fake_run_agent)
     with app.app_context():
         before = safe_path("listener", "memory/plan.md").read_text()
@@ -401,6 +406,7 @@ def test_rapid_agent_request_reaches_runtime_and_does_not_append_plan(app, regis
     )
     assert response.status_code == 200
     assert captured["rapid"] is True
+    assert safety_timeouts == [8]
     with app.app_context():
         assert safe_path("listener", "memory/plan.md").read_text() == before
 
@@ -1256,6 +1262,38 @@ def test_safety_completion_retries_without_json_mode_for_compatible_proxies(app,
     assert '"allowed":true' in raw
     assert "response_format" in payloads[0]
     assert "response_format" not in payloads[1]
+
+
+def test_agent_completion_uses_low_reasoning_for_rapid_and_falls_back_for_compatible_providers(app, monkeypatch):
+    from resona import closeai
+
+    payloads = []
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {}
+
+        def json(self):
+            return {"choices": [{"message": {"content": "Done", "tool_calls": []}}]}
+
+    def fake_post(_url, **kwargs):
+        payloads.append(kwargs["json"])
+        return Response(400 if len(payloads) == 1 else 200)
+
+    monkeypatch.setattr("resona.closeai.requests.post", fake_post)
+    closeai._LOW_REASONING_UNSUPPORTED.clear()
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE settings SET value = 'sk-server-only' WHERE key = 'closeai_api_key'")
+        db.execute("UPDATE settings SET value = 'rapid-test-model' WHERE key = 'closeai_model'")
+        db.commit()
+        closeai.agent_completion([], [], API_KEY_PLACEHOLDER, reasoning_effort="low")
+        closeai.agent_completion([], [], API_KEY_PLACEHOLDER, reasoning_effort="low")
+    assert payloads[0]["reasoning_effort"] == "low"
+    assert "reasoning_effort" not in payloads[1]
+    assert "reasoning_effort" not in payloads[2]
+    closeai._LOW_REASONING_UNSUPPORTED.clear()
 
 
 def test_prompt_safety_fails_closed_on_invalid_provider_decision(monkeypatch):

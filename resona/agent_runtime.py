@@ -2,6 +2,7 @@ import ipaddress
 import json
 import re
 import shutil
+import time
 from pathlib import PurePosixPath
 from urllib.parse import urlparse
 
@@ -42,6 +43,14 @@ TOOL_DEFINITIONS = [
     {"type": "function", "function": {"name": "validate_workspace", "description": "Validate nav.json, referenced pages and icons, and generated text files. Run this after changes and before finishing.", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}}},
     {"type": "function", "function": {"name": "finish", "description": "Finish only after the request is satisfied and the resulting files are internally consistent. Provide a concise user-facing summary.", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"], "additionalProperties": False}}},
 ]
+RAPID_TOOL_NAMES = {
+    "list_files", "read_file", "write_file", "replace_in_file", "make_directory",
+    "move_path", "delete_path", "update_navigation", "validate_workspace", "finish",
+}
+RAPID_TOOL_DEFINITIONS = [tool for tool in TOOL_DEFINITIONS if tool["function"]["name"] in RAPID_TOOL_NAMES]
+RAPID_MAX_STEPS = 3
+RAPID_TOTAL_SECONDS = 50
+RAPID_REQUEST_SECONDS = 15
 
 
 def _clean_relative(relative, allow_root=False):
@@ -321,6 +330,28 @@ class WorkspaceTools:
 
 
 def build_agent_messages(base_prompt, user_prompt, skills, notes, navigation, max_steps, rapid=False):
+    if rapid:
+        system = f"""You are Resona AI in RAPID MODE, modifying only the current user's isolated frontend workspace. Finish a focused, high-quality change in no more than {RAPID_MAX_STEPS} model turns.
+
+Execution pattern:
+1. First turn: issue all directly relevant list_files/read_file calls together. Do not read memory and do not explore unrelated files.
+2. Second turn: issue all targeted write/replace/navigation calls together, then validate_workspace and finish in that same turn when possible.
+3. The final turn is only for correcting a failed edit or validation. Never narrate a plan or call tools one at a time.
+
+Preserve existing behavior unless removal was requested. Use targeted replacements when practical. Keep nav.json valid. Produce finished interfaces, not placeholders. UI changes must remain readable at 320px, avoid horizontal overflow, reflow columns, use 16px phone body text, 12px supporting text, roughly 44px touch targets, and mobile safe areas.
+
+Security boundaries: never access server source, other users, system paths, or snapshots. Generated HTML cannot load external scripts or use iframes, forms, embedded objects, or inline on-event attributes. Page scripts run in an opaque sandbox without parent DOM, cookies, storage, sessions, or network access. Standalone generated JavaScript is synthesis-only. Account UI and the player shell/microphone are immutable.
+
+Persistent page data uses window.ResonaFiles with list, read, write, upload, mkdir, move, and delete. Audio controls should use existing data-* bindings found in the workspace. Supported audio concepts include play/pause; binaural beat, individual ears, noise and mixer volumes; atmosphere; warmth, movement, space, texture, shimmer and output; manual/generated tonal source and tonal centre; and chord generation/playback. Inspect an existing relevant page before using exact bindings rather than inventing actions.
+
+The request already passed server safety review; continue to reject harmful, illegal, privacy-invasive, abusive, or safeguard-evasion work. Low reasoning means concise execution, not skipped validation. Memory calls and notes are intentionally unavailable in Rapid mode.
+
+Current navigation:
+{navigation[:5000]}
+
+Relevant saved user notes (use without rereading memory):
+{notes[:2500]}"""
+        return [{"role": "system", "content": system}, {"role": "user", "content": user_prompt}]
     skill_text = "\n".join(f"- {skill['name']}: {skill['description']} ({skill['endpoint'] or 'no endpoint'})" for skill in skills) or "- No extra skills are installed."
     memory_guidance = (
         """RAPID MODE IS ACTIVE. Complete the request with as few model turns and tool calls as practical while preserving correctness. Use the navigation and user memory already supplied in this prompt. Calls to read_memory and write_memory are optional and should normally be skipped. Inspect only directly relevant files, batch independent tool calls in one turn, prefer targeted edits, avoid broad exploration and repeated reads, validate the workspace after editing, fix any reported issue, and finish immediately once the smallest complete high-quality solution is validated. Do not skip a necessary file read, safety boundary, accessibility requirement, or validation merely to save a call."""
@@ -365,9 +396,12 @@ User memory:
 
 
 def run_agent(username, user_id, user_prompt, credential, base_prompt, skills, notes, navigation, max_steps, rapid=False):
+    if rapid:
+        max_steps = min(max_steps, RAPID_MAX_STEPS)
     messages = build_agent_messages(base_prompt, user_prompt, skills, notes, navigation, max_steps, rapid=rapid)
     workspace = WorkspaceTools(username, user_id, require_memory=not rapid)
     tools_used = []
+    rapid_deadline = time.monotonic() + RAPID_TOTAL_SECONDS if rapid else None
     trace_agent_debug(
         "run_started",
         username=username,
@@ -396,7 +430,19 @@ def run_agent(username, user_id, user_prompt, credential, base_prompt, skills, n
         })
         trace_agent_debug("step_started", step=step, max_steps=max_steps, remaining_after_step=remaining)
         try:
-            message = agent_completion(messages, TOOL_DEFINITIONS, credential)
+            if rapid:
+                remaining_seconds = rapid_deadline - time.monotonic()
+                if remaining_seconds <= 1:
+                    raise RuntimeError("Rapid mode reached its 50-second execution budget before the provider completed the request")
+                message = agent_completion(
+                    messages,
+                    RAPID_TOOL_DEFINITIONS,
+                    credential,
+                    reasoning_effort="low",
+                    timeout=min(RAPID_REQUEST_SECONDS, remaining_seconds),
+                )
+            else:
+                message = agent_completion(messages, TOOL_DEFINITIONS, credential)
         except Exception as exc:
             trace_agent_debug("model_request_failed", step=step, error=f"{type(exc).__name__}: {exc}")
             raise
@@ -407,6 +453,8 @@ def run_agent(username, user_id, user_prompt, credential, base_prompt, skills, n
             tool_calls=message.get("tool_calls") or [],
         )
         assistant_message = {"role": "assistant", "content": message.get("content")}
+        if message.get("reasoning_content") is not None:
+            assistant_message["reasoning_content"] = message["reasoning_content"]
         tool_calls = message.get("tool_calls") or []
         if tool_calls:
             assistant_message["tool_calls"] = tool_calls
@@ -447,4 +495,6 @@ def run_agent(username, user_id, user_prompt, credential, base_prompt, skills, n
             trace_agent_debug("run_completed", step=step, summary=finished_summary, tools_used=tools_used)
             return {"summary": finished_summary[:1000], "steps": step, "tools": tools_used}
     trace_agent_debug("step_limit_reached", max_steps=max_steps, tools_used=tools_used)
+    if rapid:
+        raise RuntimeError("Rapid mode could not complete within its three-turn, 50-second budget. Use Balanced mode for this larger request.")
     raise RuntimeError(f"Agent reached the configured {max_steps}-step safety limit before finishing")

@@ -89,7 +89,7 @@ def modify():
     )
     db.commit()
     try:
-        safety = review_agent_prompt(prompt, credential)
+        safety = review_agent_prompt(prompt, credential, 8 if rapid else 45)
     except Exception as exc:
         message = "The safety review is unavailable, so this request was not executed. Please try again later."
         db.execute("UPDATE agent_runs SET summary = ?, status = 'failed' WHERE id = ?", (message, run.lastrowid))

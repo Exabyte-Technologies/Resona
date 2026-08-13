@@ -59,7 +59,7 @@ def _reject(category):
     return SafetyDecision(False, category, REJECTION_MESSAGES.get(category, REJECTION_MESSAGES["other_harm"]))
 
 
-def review_agent_prompt(prompt, credential=API_KEY_PLACEHOLDER):
+def review_agent_prompt(prompt, credential=API_KEY_PLACEHOLDER, timeout=45):
     normalized = _normalize(prompt)
     for category, pattern in LOCAL_RULES:
         if pattern.search(normalized):
@@ -71,7 +71,7 @@ def review_agent_prompt(prompt, credential=API_KEY_PLACEHOLDER):
     if (BENIGN_RESONA_REQUEST.search(normalized) or BENIGN_RESONA_EXPERIENCE.search(normalized)) and not BENIGN_RESONA_RISK_TERMS.search(normalized):
         return SafetyDecision(True)
 
-    raw = safety_completion(prompt, credential)
+    raw = safety_completion(prompt, credential, timeout)
     try:
         cleaned = raw.strip()
         if cleaned.startswith("```"):
