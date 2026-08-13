@@ -1,3 +1,5 @@
+![Resona banner](resona/static/resona-banner.png)
+
 # Resona
 
 Resona is an adaptive healing-music web application. It combines a procedural Web Audio engine with a persistent Vibe Agent that can reshape each user's pages, navigation, theme, and custom synthesis configuration while the protected player shell and microphone remain fixed.
