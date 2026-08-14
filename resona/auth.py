@@ -10,14 +10,21 @@ from .captcha import require_captcha
 from .email_verification import issue_email_verification, verification_record, verification_resend_wait
 from .resend import resend_is_configured, send_password_reset_email, send_welcome_email
 from .security import USERNAME_RE, login_required, require_csrf
+from .user_controls import user_control_enabled
 from .user_storage import initialize_user_storage
 
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 
+def _disabled(title, message):
+    return render_template("auth/disabled.html", feature_title=title, feature_message=message), 403
+
+
 @auth_bp.route("/register", methods=("GET", "POST"))
 def register():
+    if not user_control_enabled("registration"):
+        return _disabled("Registration is unavailable", "New account registration has been temporarily disabled by the administrator.")
     if request.method == "POST":
         require_csrf()
         require_captcha()
@@ -66,6 +73,8 @@ def register():
 
 @auth_bp.route("/login", methods=("GET", "POST"))
 def login():
+    if not user_control_enabled("login"):
+        return _disabled("Sign-in is unavailable", "User sign-in has been temporarily disabled by the administrator. Administrative access remains available.")
     if request.method == "POST":
         require_csrf()
         require_captcha()
@@ -182,6 +191,8 @@ def logout():
 
 @auth_bp.route("/forgot", methods=("GET", "POST"))
 def forgot():
+    if not user_control_enabled("password_recovery"):
+        return _disabled("Password recovery is unavailable", "Password recovery has been temporarily disabled by the administrator.")
     reset_token = None
     if request.method == "POST":
         require_csrf()
@@ -211,6 +222,8 @@ def forgot():
 
 @auth_bp.route("/reset/<token>", methods=("GET", "POST"))
 def reset(token):
+    if not user_control_enabled("password_recovery"):
+        return _disabled("Password recovery is unavailable", "Password recovery has been temporarily disabled by the administrator.")
     digest = hashlib.sha256(token.encode()).hexdigest()
     row = get_db().execute("SELECT * FROM password_resets WHERE token_hash = ? AND used_at IS NULL", (digest,)).fetchone()
     valid = row and datetime.fromisoformat(row["expires_at"]) > datetime.now(timezone.utc)

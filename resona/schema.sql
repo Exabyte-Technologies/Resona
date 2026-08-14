@@ -86,3 +86,7 @@ INSERT OR IGNORE INTO settings(key, value) VALUES ('resend_from_email', '');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('resend_from_name', '');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('agent_prompt_version', '');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('agent_model_version', '');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('user_registration_enabled', '1');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('user_login_enabled', '1');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('password_recovery_enabled', '1');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('profile_editing_enabled', '1');

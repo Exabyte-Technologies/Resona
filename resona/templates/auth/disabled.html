@@ -1,0 +1,2 @@
+{% extends 'base.html' %}{% block title %}{{ feature_title }} · Resona{% endblock %}{% block body_class %}auth-body{% endblock %}
+{% block body %}<main class="auth-shell single"><section class="auth-panel"><div class="auth-form"><a class="brand" href="/">resona<span>.</span></a><p class="kicker">Administrator control</p><h2>{{ feature_title }}</h2><p class="muted">{{ feature_message }}</p><a class="primary" href="{{ url_for('admin.login') }}">Administrator sign-in <span>→</span></a></div></section></main>{% endblock %}

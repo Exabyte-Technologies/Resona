@@ -7,6 +7,7 @@ from .captcha import validate_captcha
 from .db import get_db
 from .email_verification import issue_email_verification, verification_resend_wait
 from .security import login_required, require_csrf
+from .user_controls import user_control_enabled
 
 
 account_bp = Blueprint("account", __name__, url_prefix="/account")
@@ -33,6 +34,12 @@ def _response(message, ok=True, status=200):
 def settings():
     if g.user["is_demo"]:
         return redirect(url_for("player.index"))
+    if not user_control_enabled("profile_editing"):
+        return render_template(
+            "auth/disabled.html",
+            feature_title="Profile editing is unavailable",
+            feature_message="Profile and password changes have been temporarily disabled by the administrator.",
+        ), 403
     return render_template("account/settings.html", **_account_context())
 
 
@@ -42,6 +49,8 @@ def update_settings():
     require_csrf()
     if g.user["is_demo"]:
         return jsonify({"ok": False, "message": "The Demo account is managed by an administrator and cannot be changed."}), 403
+    if not user_control_enabled("profile_editing"):
+        return jsonify({"ok": False, "message": "Profile editing has been disabled by the administrator."}), 403
     if not validate_captcha():
         return _response("Complete a fresh CAPTCHA verification and try again.", False, 400)
     db = get_db()

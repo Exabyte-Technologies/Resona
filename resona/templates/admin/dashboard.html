@@ -52,6 +52,18 @@
       </form>
       <form method="post" action="{{ url_for('admin.update_demo') }}" class="delete-user-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="reset"><p><strong>Reset Demo remotely</strong><small>Restores the original workspace, removes demo-generated pages and history, and signs out active Demo sessions.</small></p><button class="danger" type="submit">Reset Demo</button></form>
     </section>
+    <section class="admin-card">
+      <p class="kicker">Access control</p><h2>User features</h2>
+      <p class="muted">Temporarily disable public account features without affecting administrator sign-in, verification links, logout, or existing stored data.</p>
+      <form method="post" action="{{ url_for('admin.update_user_controls') }}" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="check-label"><input type="checkbox" name="registration" value="1"{% if user_controls.registration %} checked{% endif %}> Registration</label>
+        <label class="check-label"><input type="checkbox" name="login" value="1"{% if user_controls.login %} checked{% endif %}> User sign-in</label>
+        <label class="check-label"><input type="checkbox" name="password_recovery" value="1"{% if user_controls.password_recovery %} checked{% endif %}> Forgot password and reset links</label>
+        <label class="check-label"><input type="checkbox" name="profile_editing" value="1"{% if user_controls.profile_editing %} checked{% endif %}> Profile, email, and password editing</label>
+        <button class="primary" type="submit">Save user controls</button>
+      </form>
+    </section>
     <section class="admin-card"><p class="kicker">Delegation</p><h2>Add an admin</h2><form method="post" action="{{ url_for('admin.add_admin') }}" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Username<input name="username" required></label><label>Email<input type="email" name="email" required></label><label>Temporary password<input type="password" name="password" minlength="10" required></label><button class="primary">Create admin</button></form></section>
     <section class="admin-card wide">
       <p class="kicker">Transactional email</p><h2>Resend</h2>

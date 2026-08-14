@@ -146,7 +146,7 @@
   document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
   document.querySelectorAll('.secure-dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); }));
   const accountForm = document.querySelector('[data-account-form]');
-  accountForm.addEventListener('submit', async event => {
+  accountForm?.addEventListener('submit', async event => {
     event.preventDefault();
     const form = event.currentTarget, formStatus = form.querySelector('[data-account-status]'), submit = form.querySelector('[type="submit"]'), cap = form.querySelector('cap-widget');
     submit.disabled = true; formStatus.textContent = 'Saving securely…';

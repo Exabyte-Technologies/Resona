@@ -103,11 +103,13 @@ def create_app(test_config=None):
 
     @app.context_processor
     def inject_csrf():
+        from .user_controls import get_user_controls
+
         token = session.get("csrf_token")
         if not token:
             token = secrets.token_urlsafe(32)
             session["csrf_token"] = token
-        return {"csrf_token": token}
+        return {"csrf_token": token, "user_controls": get_user_controls()}
 
     app.teardown_appcontext(close_db)
     return app

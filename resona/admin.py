@@ -8,6 +8,7 @@ from .db import get_db
 from .demo import DEMO_USERNAME, reset_demo_workspace
 from .resend import get_resend_settings
 from .security import USERNAME_RE, admin_required, require_csrf
+from .user_controls import USER_CONTROL_KEYS, get_user_controls
 from .user_storage import delete_user_storage, initialize_user_storage, rename_user_storage, usage_bytes, user_root
 
 
@@ -57,13 +58,31 @@ def dashboard():
         "ready": bool(resend_settings["api_key"] and resend_settings["from_email"]),
     }
     demo = dict(db.execute("SELECT id, username, demo_enabled, session_version FROM users WHERE is_demo = 1").fetchone())
+    user_controls = get_user_controls()
     stats = {
         "users": len(users),
         "storage": sum(user["storage_used"] for user in users),
         "runs": db.execute("SELECT COUNT(*) AS count FROM agent_runs").fetchone()["count"],
         "failures": db.execute("SELECT COUNT(*) AS count FROM agent_runs WHERE status = 'failed'").fetchone()["count"],
     }
-    return render_template("admin/dashboard.html", users=users, skills=skills, system_prompt=prompt, stats=stats, provider=provider, resend=resend, demo=demo)
+    return render_template("admin/dashboard.html", users=users, skills=skills, system_prompt=prompt, stats=stats, provider=provider, resend=resend, demo=demo, user_controls=user_controls)
+
+
+@admin_bp.post("/user-controls")
+@admin_required
+def update_user_controls():
+    require_csrf()
+    db = get_db()
+    for name, key in USER_CONTROL_KEYS.items():
+        value = "1" if request.form.get(name) == "1" else "0"
+        db.execute(
+            "INSERT INTO settings(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+            (key, value),
+        )
+    db.commit()
+    flash("User access controls were updated.", "success")
+    return redirect(url_for("admin.dashboard"))
 
 
 @admin_bp.post("/demo")

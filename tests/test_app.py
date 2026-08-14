@@ -30,6 +30,18 @@ def test_default_agent_prompt_and_model_are_configured_from_bundled_defaults(app
         assert get_provider_settings()["model"] == "gpt-5.6-sol"
 
 
+def test_user_control_features_are_enabled_by_default(app):
+    from resona.user_controls import get_user_controls
+
+    with app.app_context():
+        assert get_user_controls() == {
+            "registration": True,
+            "login": True,
+            "password_recovery": True,
+            "profile_editing": True,
+        }
+
+
 def test_resona_favicon_is_available_on_every_page(client):
     response = client.get("/auth/login")
     assert response.status_code == 200
@@ -1769,6 +1781,87 @@ def test_admin_can_delete_user_and_workspace_but_not_final_admin(app, client):
     assert final_admin.status_code == 302
     with app.app_context():
         assert get_db().execute("SELECT id FROM users WHERE id = ?", (admin_id,)).fetchone()
+
+
+def test_admin_can_disable_user_account_features_without_disabling_admin_access(app, client):
+    from resona.user_storage import initialize_user_storage
+    from werkzeug.security import generate_password_hash
+
+    with app.app_context():
+        db = get_db()
+        admin_id = db.execute(
+            "INSERT INTO users(username,email,email_verified_at,password_hash,is_admin) VALUES (?,?,CURRENT_TIMESTAMP,?,1)",
+            ("controls_admin", "controls-admin@example.com", generate_password_hash("long-admin-password", method="pbkdf2:sha256:600000")),
+        ).lastrowid
+        listener_id = db.execute(
+            "INSERT INTO users(username,email,email_verified_at,password_hash) VALUES (?,?,CURRENT_TIMESTAMP,?)",
+            ("controls_listener", "controls-listener@example.com", generate_password_hash("listener-password", method="pbkdf2:sha256:600000")),
+        ).lastrowid
+        db.commit()
+        initialize_user_storage("controls_listener")
+    with client.session_transaction() as session:
+        session["user_id"] = admin_id
+        session["csrf_token"] = "controls-admin-csrf"
+
+    response = client.post("/admin/user-controls", data={"csrf_token": "controls-admin-csrf"})
+    assert response.status_code == 302
+    dashboard = client.get("/admin/")
+    assert dashboard.status_code == 200
+    assert b"User features" in dashboard.data
+    with app.app_context():
+        settings = {row["key"]: row["value"] for row in get_db().execute(
+            "SELECT key, value FROM settings WHERE key LIKE '%enabled'"
+        ).fetchall()}
+        assert settings["user_registration_enabled"] == "0"
+        assert settings["user_login_enabled"] == "0"
+        assert settings["password_recovery_enabled"] == "0"
+        assert settings["profile_editing_enabled"] == "0"
+
+    public = app.test_client()
+    for path, text in (
+        ("/auth/register", b"Registration is unavailable"),
+        ("/auth/login", b"Sign-in is unavailable"),
+        ("/auth/forgot", b"Password recovery is unavailable"),
+        ("/auth/reset/any-token", b"Password recovery is unavailable"),
+    ):
+        unavailable = public.get(path)
+        assert unavailable.status_code == 403
+        assert text in unavailable.data
+    assert public.post("/auth/register").status_code == 403
+    assert public.get("/admin/login").status_code == 200
+
+    listener = app.test_client()
+    with listener.session_transaction() as session:
+        session["user_id"] = listener_id
+        session["session_version"] = 0
+        session["csrf_token"] = "controls-listener-csrf"
+    profile = listener.get("/account/")
+    assert profile.status_code == 403
+    assert b"Profile editing is unavailable" in profile.data
+    blocked_update = listener.post(
+        "/account/",
+        headers={"Accept": "application/json"},
+        data={"csrf_token": "controls-listener-csrf"},
+    )
+    assert blocked_update.status_code == 403
+    assert b"disabled by the administrator" in blocked_update.data
+    player = listener.get("/player/")
+    assert player.status_code == 200
+    assert b'id="account-button"' not in player.data
+    assert b'id="account-dialog"' not in player.data
+
+    enabled = client.post("/admin/user-controls", data={
+        "csrf_token": "controls-admin-csrf",
+        "registration": "1",
+        "login": "1",
+        "password_recovery": "1",
+        "profile_editing": "1",
+    })
+    assert enabled.status_code == 302
+    assert public.get("/auth/register").status_code == 200
+    assert public.get("/auth/login").status_code == 200
+    assert public.get("/auth/forgot").status_code == 200
+    assert listener.get("/account/").status_code == 200
 
 
 def test_autonomous_agent_uses_multiple_file_tools_until_finish(app, registered, monkeypatch):
