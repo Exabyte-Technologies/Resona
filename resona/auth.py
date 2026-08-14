@@ -74,7 +74,7 @@ def register():
 @auth_bp.route("/login", methods=("GET", "POST"))
 def login():
     if not user_control_enabled("login"):
-        return _disabled("Sign-in is unavailable", "User sign-in has been temporarily disabled by the administrator. Administrative access remains available.")
+        return render_template("auth/login.html", sign_in_disabled=True), 403
     if request.method == "POST":
         require_csrf()
         require_captcha()

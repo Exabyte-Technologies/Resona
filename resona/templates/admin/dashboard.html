@@ -63,6 +63,7 @@
         <label class="check-label"><input type="checkbox" name="profile_editing" value="1"{% if user_controls.profile_editing %} checked{% endif %}> Profile, email, and password editing</label>
         <button class="primary" type="submit">Save user controls</button>
       </form>
+      <form method="post" action="{{ url_for('admin.sign_out_users') }}" class="delete-user-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><p><strong>Sign everyone out</strong><small>Invalidates every non-administrator session. Administrator sessions stay active.</small></p><button class="danger" type="submit">Sign out all users</button></form>
     </section>
     <section class="admin-card"><p class="kicker">Delegation</p><h2>Add an admin</h2><form method="post" action="{{ url_for('admin.add_admin') }}" class="stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Username<input name="username" required></label><label>Email<input type="email" name="email" required></label><label>Temporary password<input type="password" name="password" minlength="10" required></label><button class="primary">Create admin</button></form></section>
     <section class="admin-card wide">

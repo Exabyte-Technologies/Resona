@@ -82,8 +82,9 @@ def create_app(test_config=None):
             "SELECT id, username, email, display_name, email_verified_at, is_admin, is_demo, demo_enabled, session_version, created_at FROM users WHERE id = ?",
             (user_id,),
         ).fetchone() if user_id else None
-        if g.user and g.user["is_demo"] and (
-            not g.user["demo_enabled"] or session.get("session_version", 0) != g.user["session_version"]
+        if g.user and (
+            session.get("session_version", 0) != g.user["session_version"]
+            or (g.user["is_demo"] and not g.user["demo_enabled"])
         ):
             session.clear()
             g.user = None

@@ -85,6 +85,18 @@ def update_user_controls():
     return redirect(url_for("admin.dashboard"))
 
 
+@admin_bp.post("/sign-out-users")
+@admin_required
+def sign_out_users():
+    require_csrf()
+    db = get_db()
+    cursor = db.execute("UPDATE users SET session_version = session_version + 1 WHERE is_admin = 0")
+    db.commit()
+    suffix = "" if cursor.rowcount == 1 else "s"
+    flash(f"Signed out {cursor.rowcount} non-administrator account{suffix}.", "success")
+    return redirect(url_for("admin.dashboard"))
+
+
 @admin_bp.post("/demo")
 @admin_required
 def update_demo():

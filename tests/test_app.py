@@ -58,6 +58,14 @@ def test_resona_favicon_is_available_on_every_page(client):
     assert apple_icon.data.startswith(b"\x89PNG\r\n\x1a\n")
 
 
+def test_login_page_includes_project_credit_and_repository_link(client):
+    response = client.get("/auth/login")
+    assert response.status_code == 200
+    assert b"Made by Jingwen Hu and Fuhang Fu" in response.data
+    assert b"https://github.com/Exabyte-Technologies/Resona" in response.data
+    assert b'rel="noopener noreferrer"' in response.data
+
+
 def test_disable_devtool_is_self_hosted_and_enabled_without_blocking_editing(client):
     response = client.get("/auth/login")
     assert response.status_code == 200
@@ -1827,6 +1835,15 @@ def test_admin_can_disable_user_account_features_without_disabling_admin_access(
         unavailable = public.get(path)
         assert unavailable.status_code == 403
         assert text in unavailable.data
+        assert b'/admin/login' not in unavailable.data
+    disabled_login = public.get("/auth/login")
+    assert b"Sound that listens back" in disabled_login.data
+    assert b"Return to your sound" in disabled_login.data
+    assert b'Made by Jingwen Hu and Fuhang Fu' in disabled_login.data
+    assert b'name="identity"' not in disabled_login.data
+    assert b'name="password"' not in disabled_login.data
+    assert b"cap-widget" not in disabled_login.data
+    assert b"Enter Resona" not in disabled_login.data
     assert public.post("/auth/register").status_code == 403
     assert public.get("/admin/login").status_code == 200
 
@@ -1862,6 +1879,58 @@ def test_admin_can_disable_user_account_features_without_disabling_admin_access(
     assert public.get("/auth/login").status_code == 200
     assert public.get("/auth/forgot").status_code == 200
     assert listener.get("/account/").status_code == 200
+
+
+def test_admin_can_sign_out_every_non_admin_session_without_signing_out_admins(app, client):
+    from werkzeug.security import generate_password_hash
+
+    with app.app_context():
+        db = get_db()
+        password_hash = generate_password_hash("long-admin-password", method="pbkdf2:sha256:600000")
+        admin_id = db.execute(
+            "INSERT INTO users(username,email,email_verified_at,password_hash,is_admin) VALUES (?,?,CURRENT_TIMESTAMP,?,1)",
+            ("session_admin", "session-admin@example.com", password_hash),
+        ).lastrowid
+        second_admin_id = db.execute(
+            "INSERT INTO users(username,email,email_verified_at,password_hash,is_admin) VALUES (?,?,CURRENT_TIMESTAMP,?,1)",
+            ("second_session_admin", "second-session-admin@example.com", password_hash),
+        ).lastrowid
+        listener_id = db.execute(
+            "INSERT INTO users(username,email,email_verified_at,password_hash) VALUES (?,?,CURRENT_TIMESTAMP,?)",
+            ("session_listener", "session-listener@example.com", password_hash),
+        ).lastrowid
+        db.commit()
+
+    with client.session_transaction() as session:
+        session["user_id"] = admin_id
+        session["session_version"] = 0
+        session["csrf_token"] = "sign-out-users-csrf"
+    second_admin = app.test_client()
+    with second_admin.session_transaction() as session:
+        session["user_id"] = second_admin_id
+        session["session_version"] = 0
+        session["csrf_token"] = "second-admin-csrf"
+    listener = app.test_client()
+    with listener.session_transaction() as session:
+        session["user_id"] = listener_id
+        session["session_version"] = 0
+        session["csrf_token"] = "listener-csrf"
+
+    response = client.post("/admin/sign-out-users", data={"csrf_token": "sign-out-users-csrf"}, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Sign out all users" in response.data
+    assert b"non-administrator accounts" in response.data
+    assert client.get("/admin/").status_code == 200
+    assert second_admin.get("/admin/").status_code == 200
+    listener_response = listener.get("/player/")
+    assert listener_response.status_code == 302
+    assert listener_response.headers["Location"].startswith("/auth/login")
+    with app.app_context():
+        db = get_db()
+        assert db.execute("SELECT session_version FROM users WHERE id = ?", (admin_id,)).fetchone()["session_version"] == 0
+        assert db.execute("SELECT session_version FROM users WHERE id = ?", (second_admin_id,)).fetchone()["session_version"] == 0
+        assert db.execute("SELECT session_version FROM users WHERE id = ?", (listener_id,)).fetchone()["session_version"] == 1
+        assert db.execute("SELECT session_version FROM users WHERE is_demo = 1").fetchone()["session_version"] == 1
 
 
 def test_autonomous_agent_uses_multiple_file_tools_until_finish(app, registered, monkeypatch):
