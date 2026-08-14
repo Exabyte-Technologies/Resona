@@ -10,6 +10,8 @@ from .db import get_db
 
 API_KEY_PLACEHOLDER = "{{RESONA_SERVER_API_KEY}}"
 _LOW_REASONING_UNSUPPORTED = set()
+_TRANSIENT_PROVIDER_STATUSES = {408, 425, 500, 502, 503, 504}
+_PROVIDER_RETRY_DELAYS = (0.4, 1.2)
 
 
 class ProviderHTTPError(RuntimeError):
@@ -35,6 +37,26 @@ class ProviderHTTPError(RuntimeError):
         super().__init__(message)
 
 
+class ProviderConnectionError(RuntimeError):
+    """A sanitized provider transport failure after automatic recovery."""
+
+    def __init__(self):
+        super().__init__(
+            "The AI provider did not respond after automatic connection retries. "
+            "Your Resona workspace is safe; please retry the request."
+        )
+
+
+class ProviderProtocolError(RuntimeError):
+    """A sanitized malformed/truncated provider response after retries."""
+
+    def __init__(self):
+        super().__init__(
+            "The AI provider returned an incomplete response after automatic retries. "
+            "Your Resona workspace is safe; please retry the request."
+        )
+
+
 def raise_for_provider_status(response):
     if response.status_code < 400:
         return
@@ -46,6 +68,38 @@ def raise_for_provider_status(response):
     except (ValueError, AttributeError):
         pass
     raise ProviderHTTPError(response.status_code, code, response.headers.get("x-request-id", ""))
+
+
+def _post_provider(endpoint, payload, headers, timeout):
+    """Retry transient POST failures without exposing requests internals."""
+    attempts = len(_PROVIDER_RETRY_DELAYS) + 1
+    for attempt in range(attempts):
+        try:
+            response = requests.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+                timeout=(10, max(1, float(timeout))),
+            )
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            if attempt == attempts - 1:
+                raise ProviderConnectionError() from exc
+        else:
+            if response.status_code < 400:
+                try:
+                    decoded = response.json()
+                    choices = decoded.get("choices") if isinstance(decoded, dict) else None
+                    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict) or not isinstance(choices[0].get("message"), dict):
+                        raise ValueError("Incomplete chat-completions payload")
+                except (ValueError, AttributeError) as exc:
+                    if attempt == attempts - 1:
+                        raise ProviderProtocolError() from exc
+                else:
+                    return response
+            elif response.status_code not in _TRANSIENT_PROVIDER_STATUSES or attempt == attempts - 1:
+                return response
+        time.sleep(_PROVIDER_RETRY_DELAYS[attempt])
+    raise ProviderConnectionError()
 
 
 def _setting(key):
@@ -120,26 +174,28 @@ def chat(messages, credential_placeholder):
     provider = get_provider_settings()
     if not provider["api_key"]:
         raise RuntimeError("No server-side OpenAI-compatible API key is configured")
-    response = requests.post(
+    response = _post_provider(
         chat_completions_url(provider["base_url"]),
-        headers={"Authorization": f"Bearer {provider['api_key']}", "Content-Type": "application/json"},
-        json={
+        {
             "model": provider["model"],
             "messages": messages,
             "response_format": {"type": "json_object"},
         },
-        timeout=90,
+        {"Authorization": f"Bearer {provider['api_key']}", "Content-Type": "application/json"},
+        current_app.config.get("CLOSEAI_READ_TIMEOUT_SECONDS", 300),
     )
     raise_for_provider_status(response)
     return response.json()["choices"][0]["message"]["content"]
 
 
-def agent_completion(messages, tools, credential_placeholder, reasoning_effort=None, timeout=90):
+def agent_completion(messages, tools, credential_placeholder, reasoning_effort=None, timeout=None):
     if credential_placeholder != API_KEY_PLACEHOLDER:
         raise ValueError("The client request did not contain the Resona credential placeholder")
     provider = get_provider_settings()
     if not provider["api_key"]:
         raise RuntimeError("No server-side OpenAI-compatible API key is configured")
+    if timeout is None:
+        timeout = current_app.config.get("CLOSEAI_READ_TIMEOUT_SECONDS", 300)
     endpoint = chat_completions_url(provider["base_url"])
     compatibility_key = (endpoint, provider["model"])
     payload = {
@@ -150,12 +206,9 @@ def agent_completion(messages, tools, credential_placeholder, reasoning_effort=N
     }
     if reasoning_effort == "low" and compatibility_key not in _LOW_REASONING_UNSUPPORTED:
         payload["reasoning_effort"] = "low"
-    request_options = {
-        "headers": {"Authorization": f"Bearer {provider['api_key']}", "Content-Type": "application/json"},
-        "timeout": timeout,
-    }
+    headers = {"Authorization": f"Bearer {provider['api_key']}", "Content-Type": "application/json"}
     started_at = time.monotonic()
-    response = requests.post(endpoint, json=payload, **request_options)
+    response = _post_provider(endpoint, payload, headers, timeout)
     if response.status_code == 400 and "reasoning_effort" in payload:
         # OpenAI-format providers do not all implement optional reasoning
         # controls. Remember the capability miss and retry the same turn using
@@ -163,8 +216,8 @@ def agent_completion(messages, tools, credential_placeholder, reasoning_effort=N
         _LOW_REASONING_UNSUPPORTED.add(compatibility_key)
         compatible_payload = dict(payload)
         compatible_payload.pop("reasoning_effort")
-        request_options["timeout"] = max(1, timeout - (time.monotonic() - started_at))
-        response = requests.post(endpoint, json=compatible_payload, **request_options)
+        compatible_timeout = max(1, timeout - (time.monotonic() - started_at))
+        response = _post_provider(endpoint, compatible_payload, headers, compatible_timeout)
     raise_for_provider_status(response)
     message = response.json()["choices"][0]["message"]
     if not isinstance(message, dict):
@@ -187,13 +240,10 @@ def safety_completion(prompt, credential_placeholder, timeout=45):
         ],
         "response_format": {"type": "json_object"},
     }
-    request_options = {
-        "headers": {"Authorization": f"Bearer {provider['api_key']}", "Content-Type": "application/json"},
-        "timeout": timeout,
-    }
+    headers = {"Authorization": f"Bearer {provider['api_key']}", "Content-Type": "application/json"}
     endpoint = chat_completions_url(provider["base_url"])
     started_at = time.monotonic()
-    response = requests.post(endpoint, json=payload, **request_options)
+    response = _post_provider(endpoint, payload, headers, timeout)
     try:
         raise_for_provider_status(response)
     except ProviderHTTPError as exc:
@@ -203,8 +253,8 @@ def safety_completion(prompt, credential_placeholder, timeout=45):
         # The policy still requires JSON-only output, and the caller validates it.
         compatible_payload = dict(payload)
         compatible_payload.pop("response_format")
-        request_options["timeout"] = max(1, timeout - (time.monotonic() - started_at))
-        response = requests.post(endpoint, json=compatible_payload, **request_options)
+        compatible_timeout = max(1, timeout - (time.monotonic() - started_at))
+        response = _post_provider(endpoint, compatible_payload, headers, compatible_timeout)
         raise_for_provider_status(response)
     content = response.json()["choices"][0]["message"]["content"]
     if not isinstance(content, str):

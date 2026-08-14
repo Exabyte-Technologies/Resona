@@ -8,6 +8,7 @@ from .agent_runtime import run_agent, trace_agent_debug
 from .closeai import API_KEY_PLACEHOLDER
 from .captcha import validate_captcha
 from .db import get_db
+from .demo import install_demo_response
 from .prompt_safety import review_agent_prompt
 from .security import login_required, require_csrf
 from .user_storage import create_snapshot, reset_user_ui, restore_snapshot, safe_path, write_user_file
@@ -88,6 +89,25 @@ def modify():
         (g.user["id"], request_id, prompt),
     )
     db.commit()
+    if g.user["is_demo"]:
+        try:
+            result = install_demo_response(prompt)
+            summary = result["summary"]
+            db.execute("UPDATE agent_runs SET summary = ?, steps = 1, status = 'complete' WHERE id = ?", (summary, run.lastrowid))
+            db.commit()
+            return jsonify({
+                "ok": True,
+                "request_id": request_id,
+                "status": "complete",
+                "summary": summary,
+                "snapshot": None,
+                "steps": 1,
+                "tools": result["tools"],
+            })
+        except ValueError as exc:
+            db.execute("UPDATE agent_runs SET summary = ?, status = 'failed' WHERE id = ?", (str(exc), run.lastrowid))
+            db.commit()
+            return jsonify({"ok": False, "error": str(exc), "snapshot": None}), 422
     try:
         safety = review_agent_prompt(prompt, credential, 8 if rapid else 45)
     except Exception as exc:
@@ -164,6 +184,8 @@ def status(request_id):
 @login_required
 def rollback(snapshot_id):
     require_csrf()
+    if g.user["is_demo"]:
+        abort(403, "The Demo workspace can only be reset by an administrator")
     try:
         restore_snapshot(g.user["username"], snapshot_id)
     except (ValueError, FileNotFoundError):
@@ -175,6 +197,8 @@ def rollback(snapshot_id):
 @login_required
 def reset_ui():
     require_csrf()
+    if g.user["is_demo"]:
+        abort(403, "The Demo workspace can only be reset by an administrator")
     snapshot = create_snapshot(g.user["username"])
     reset_user_ui(g.user["username"])
     trace_agent_debug("original_ui_restored", username=g.user["username"], snapshot=snapshot)

@@ -1,11 +1,11 @@
 {% extends 'base.html' %}{% block title %}Resona · Your healing space{% endblock %}{% block body_class %}player-body{% endblock %}
 {% block body %}
-<div id="app" data-username="{{ g.user.username }}" data-csrf="{{ csrf_token }}">
+<div id="app" data-username="{{ g.user.username }}" data-is-demo="{{ 'true' if g.user.is_demo else 'false' }}" data-csrf="{{ csrf_token }}">
   <header class="player-top">
     <a class="brand" href="{{ url_for('player.index') }}">resona<span>.</span></a>
     <div class="player-actions">
-      <button class="account-button" id="account-button" type="button" aria-label="Open account settings"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9a7 7 0 0 1 14 0"/></svg><span>{{ g.user.display_name or g.user.username }}</span></button>
-      <button class="reset-ui-button" id="reset-original-ui" type="button" aria-label="Restore original UI"><svg viewBox="0 0 24 24"><path d="M4 8v5h5M5.5 12a7 7 0 1 0 2-5L4 8"/></svg><span>Original UI</span></button>
+      {% if not g.user.is_demo %}<button class="account-button" id="account-button" type="button" aria-label="Open account settings"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9a7 7 0 0 1 14 0"/></svg><span>{{ g.user.display_name or g.user.username }}</span></button>
+      <button class="reset-ui-button" id="reset-original-ui" type="button" aria-label="Restore original UI"><svg viewBox="0 0 24 24"><path d="M4 8v5h5M5.5 12a7 7 0 1 0 2-5L4 8"/></svg><span>Original UI</span></button>{% else %}<span class="status on">Demo</span>{% endif %}
       <form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="logout-button" type="submit" aria-label="Log out"><svg viewBox="0 0 24 24"><path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4m5-4 4-3-4-3m4 3H9"/></svg><span>Log out</span></button></form>
     </div>
   </header>
@@ -39,8 +39,8 @@
   <section class="agent-sheet" id="agent-sheet" role="dialog" aria-modal="true" aria-labelledby="agent-title">
     <button class="sheet-close" id="sheet-close" aria-label="Close">×</button>
     <div class="agent-orb" id="agent-orb" aria-hidden="true"><span></span><span></span><span></span><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm-7-3a1 1 0 0 1 2 0 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.92V21a1 1 0 0 1-2 0v-2.08A7 7 0 0 1 5 12z"/></svg></div>
-    <div class="agent-copy"><p class="kicker">Resona vibe agent</p><h2 id="agent-title">How can I help you heal today?</h2><p>Speak or type to dynamically reshape your interface, themes, or musical compositions.</p></div>
-    <div class="prompt-examples" id="prompt-examples"><button>“Create a 432 Hz sleep timer preset with ambient rain.”</button><button>“Simplify the UI for night mode and add a deep relaxation tab.”</button><button>“Boost the binaural alpha waves and add an ambient sound pad.”</button></div>
+    <div class="agent-copy"><p class="kicker">Resona vibe agent</p><h2 id="agent-title">{{ 'Explore the Resona demo' if g.user.is_demo else 'How can I help you heal today?' }}</h2><p>{{ 'Choose one of three reviewed requests to add a complete interactive page.' if g.user.is_demo else 'Speak or type to dynamically reshape your interface, themes, or musical compositions.' }}</p></div>
+    <div class="prompt-examples" id="prompt-examples">{% if g.user.is_demo %}<button>“Create a meditation guiding page.”</button><button>“Create a motivation quotes page.”</button><button>“Create a sleep timer.”</button>{% else %}<button>“Create a 432 Hz sleep timer preset with ambient rain.”</button><button>“Simplify the UI for night mode and add a deep relaxation tab.”</button><button>“Boost the binaural alpha waves and add an ambient sound pad.”</button>{% endif %}</div>
     <div class="agent-mode" role="group" aria-label="Agent execution mode"><button type="button" class="active" data-agent-mode="balanced" aria-pressed="true">Balanced</button><button type="button" data-agent-mode="rapid" aria-pressed="false">Rapid <small>under 1 min</small></button></div>
     <form id="agent-form" class="agent-input"><textarea id="agent-prompt" rows="1" maxlength="4000" placeholder="Tell Resona what you need…"></textarea><button type="button" id="voice-button" aria-label="Speak prompt"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm-7-3a1 1 0 0 1 2 0 5 5 0 0 0 10 0 1 1 0 0 1 2 0 7 7 0 0 1-6 6.92V21a1 1 0 0 1-2 0v-2.08A7 7 0 0 1 5 12z"/></svg></button><button type="submit" class="send-prompt" aria-label="Send prompt">↑</button></form>
     <div class="agent-status" id="agent-status" aria-live="polite"></div>

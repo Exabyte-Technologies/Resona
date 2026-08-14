@@ -5,6 +5,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .closeai import get_provider_settings, validate_base_url
 from .db import get_db
+from .demo import DEMO_USERNAME, reset_demo_workspace
 from .resend import get_resend_settings
 from .security import USERNAME_RE, admin_required, require_csrf
 from .user_storage import delete_user_storage, initialize_user_storage, rename_user_storage, usage_bytes, user_root
@@ -34,7 +35,7 @@ def login():
 @admin_required
 def dashboard():
     db = get_db()
-    users = [dict(row) for row in db.execute("SELECT id, username, email, is_admin, created_at FROM users ORDER BY id DESC").fetchall()]
+    users = [dict(row) for row in db.execute("SELECT id, username, email, is_admin, is_demo, demo_enabled, created_at FROM users ORDER BY id DESC").fetchall()]
     for user in users:
         user["storage_used"] = usage_bytes(user["username"])
     skills = db.execute("SELECT skills.*, users.username FROM skills LEFT JOIN users ON users.id = skills.user_id ORDER BY skills.id DESC").fetchall()
@@ -55,13 +56,59 @@ def dashboard():
         "key_configured": bool(resend_settings["api_key"]),
         "ready": bool(resend_settings["api_key"] and resend_settings["from_email"]),
     }
+    demo = dict(db.execute("SELECT id, username, demo_enabled, session_version FROM users WHERE is_demo = 1").fetchone())
     stats = {
         "users": len(users),
         "storage": sum(user["storage_used"] for user in users),
         "runs": db.execute("SELECT COUNT(*) AS count FROM agent_runs").fetchone()["count"],
         "failures": db.execute("SELECT COUNT(*) AS count FROM agent_runs WHERE status = 'failed'").fetchone()["count"],
     }
-    return render_template("admin/dashboard.html", users=users, skills=skills, system_prompt=prompt, stats=stats, provider=provider, resend=resend)
+    return render_template("admin/dashboard.html", users=users, skills=skills, system_prompt=prompt, stats=stats, provider=provider, resend=resend, demo=demo)
+
+
+@admin_bp.post("/demo")
+@admin_required
+def update_demo():
+    require_csrf()
+    db = get_db()
+    demo = db.execute("SELECT * FROM users WHERE is_demo = 1").fetchone()
+    if demo is None:
+        abort(404)
+    action = request.form.get("action", "settings")
+    if action == "reset":
+        try:
+            reset_demo_workspace()
+            db.execute("DELETE FROM playback_history WHERE user_id = ?", (demo["id"],))
+            db.execute("DELETE FROM agent_runs WHERE user_id = ?", (demo["id"],))
+            db.execute("UPDATE users SET session_version = session_version + 1 WHERE id = ?", (demo["id"],))
+            db.commit()
+            flash("The Demo workspace, history, and generated pages were reset. Active Demo sessions were signed out.", "success")
+        except (OSError, ValueError):
+            db.rollback()
+            current_app.logger.exception("Could not reset the Demo workspace")
+            flash("The Demo workspace could not be reset.", "error")
+        return redirect(url_for("admin.dashboard"))
+    if action != "settings":
+        abort(400)
+    enabled = request.form.get("enabled") == "1"
+    password_mode = request.form.get("password_mode", "keep")
+    password = request.form.get("password", "")
+    if password_mode not in {"keep", "blank", "custom"}:
+        abort(400)
+    if password_mode == "custom" and len(password) < 10:
+        flash("A custom Demo password must contain at least 10 characters.", "error")
+        return redirect(url_for("admin.dashboard"))
+    assignments = ["demo_enabled = ?"]
+    values = [int(enabled)]
+    if password_mode != "keep":
+        assignments.append("password_hash = ?")
+        values.append(generate_password_hash("" if password_mode == "blank" else password, method="pbkdf2:sha256:600000"))
+    assignments.append("session_version = session_version + 1")
+    values.append(demo["id"])
+    db.execute(f"UPDATE users SET {', '.join(assignments)} WHERE id = ?", values)
+    db.commit()
+    flash("Demo access settings were updated. Existing Demo sessions were signed out.", "success")
+    return redirect(url_for("admin.dashboard"))
 
 
 @admin_bp.post("/users")
@@ -73,6 +120,9 @@ def create_user():
     password = request.form.get("password", "")
     if not USERNAME_RE.fullmatch(username):
         flash("Use 3–32 lowercase letters, numbers, underscores, or hyphens.", "error")
+        return redirect(url_for("admin.dashboard"))
+    if username == DEMO_USERNAME:
+        flash("The Demo username is reserved and cannot be overridden.", "error")
         return redirect(url_for("admin.dashboard"))
     if "@" not in email or len(email) > 254:
         flash("Enter a valid email address.", "error")
@@ -120,6 +170,9 @@ def edit_user(user_id):
     user = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     if user is None:
         abort(404)
+    if user["is_demo"]:
+        flash("Use the protected Demo controls to manage this account.", "error")
+        return redirect(url_for("admin.dashboard"))
 
     username = request.form.get("username", "").strip().lower()
     email = request.form.get("email", "").strip().lower()
@@ -173,9 +226,12 @@ def edit_user(user_id):
 def delete_user(user_id):
     require_csrf()
     db = get_db()
-    user = db.execute("SELECT id, username, is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = db.execute("SELECT id, username, is_admin, is_demo FROM users WHERE id = ?", (user_id,)).fetchone()
     if user is None:
         abort(404)
+    if user["is_demo"]:
+        flash("The protected Demo account cannot be deleted.", "error")
+        return redirect(url_for("admin.dashboard"))
     if request.form.get("confirm_username", "").strip().lower() != user["username"]:
         flash(f"Type {user['username']} exactly to confirm deletion.", "error")
         return redirect(url_for("admin.dashboard", user=user_id))
@@ -298,7 +354,9 @@ def add_admin():
     username = request.form.get("username", "").strip().lower()
     email = request.form.get("email", "").strip().lower()
     password = request.form.get("password", "")
-    if not USERNAME_RE.fullmatch(username) or "@" not in email or len(password) < 10:
+    if username == "demo":
+        flash("Demo is a reserved account name.", "error")
+    elif not USERNAME_RE.fullmatch(username) or "@" not in email or len(password) < 10:
         flash("Enter a valid username, email, and password of at least 10 characters.", "error")
     else:
         db = get_db()

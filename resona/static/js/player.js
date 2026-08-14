@@ -142,7 +142,7 @@
   function openSheet(){ sheet.classList.add('open'); backdrop.classList.add('open'); setTimeout(() => prompt.focus(), 350); }
   function closeSheet(){ sheet.classList.remove('open'); backdrop.classList.remove('open'); }
   document.querySelector('#mic-button').addEventListener('click', openSheet); document.querySelector('#sheet-close').addEventListener('click', closeSheet); backdrop.addEventListener('click', closeSheet); document.addEventListener('keydown', e => { if(e.key === 'Escape') closeSheet(); });
-  document.querySelector('#account-button').addEventListener('click', () => accountDialog.showModal());
+  document.querySelector('#account-button')?.addEventListener('click', () => accountDialog.showModal());
   document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
   document.querySelectorAll('.secure-dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); }));
   const accountForm = document.querySelector('[data-account-form]');
@@ -156,7 +156,7 @@
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Account update failed');
       formStatus.textContent = data.message;
-      document.querySelector('#account-button span').textContent = form.elements.display_name.value.trim();
+      const accountName = document.querySelector('#account-button span'); if (accountName) accountName.textContent = form.elements.display_name.value.trim();
       form.elements.current_password.value = ''; form.elements.new_password.value = '';
     } catch (error) { formStatus.textContent = error.message; }
     finally { submit.disabled = false; cap.reset(); }
@@ -230,7 +230,7 @@
   continueAgentRequest.addEventListener('click', () => { if (!pendingAgentPrompt || !agentCaptchaToken) return; const token = agentCaptchaToken; agentCaptchaToken = ''; agentCaptchaDialog.close(); sendAgentRequest(pendingAgentPrompt, token, pendingAgentRequestId, pendingAgentMode); });
   agentCaptchaDialog.addEventListener('close', () => { document.querySelector('#agent-form').classList.remove('busy'); });
   try { const active = JSON.parse(sessionStorage.getItem(ACTIVE_AGENT_REQUEST) || 'null'); if (active?.requestId && active?.value) recoverAgentRequest(active.requestId, active.value, active.mode || 'balanced'); } catch (_error) { forgetAgentRequest(); }
-  document.querySelector('#reset-original-ui').addEventListener('click', async event => { if (!window.confirm('Restore the original Resona UI? Your account, memories, history, and a recovery snapshot will be kept.')) return; const button = event.currentTarget; button.disabled = true; try { const response = await api('/agent/reset-ui', {method:'POST', body:'{}'}); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'The original UI could not be restored'); button.querySelector('span').textContent = 'Restored'; location.reload(); } catch (error) { button.disabled = false; toast(error.message); } });
+  document.querySelector('#reset-original-ui')?.addEventListener('click', async event => { if (!window.confirm('Restore the original Resona UI? Your account, memories, history, and a recovery snapshot will be kept.')) return; const button = event.currentTarget; button.disabled = true; try { const response = await api('/agent/reset-ui', {method:'POST', body:'{}'}); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'The original UI could not be restored'); button.querySelector('span').textContent = 'Restored'; location.reload(); } catch (error) { button.disabled = false; toast(error.message); } });
   function showFallback(){ document.querySelector('#fallback-alert').classList.add('open'); backdrop.classList.add('open'); }
   document.querySelector('#dismiss-fallback').addEventListener('click', () => { document.querySelector('#fallback-alert').classList.remove('open'); backdrop.classList.remove('open'); });
   document.querySelector('#reset-last').addEventListener('click', async () => { const snapshots = await fetch('/player/api/snapshots').then(r=>r.json()); if (!snapshots.length) return toast('No earlier preset is available'); const response = await api(`/agent/rollback/${snapshots[0]}`, {method:'POST', body:'{}'}); if(response.ok) location.reload(); else toast('Reset failed'); });

@@ -21,6 +21,7 @@ def create_app(test_config=None):
         CLOSEAI_BASE_URL=os.getenv("CLOSEAI_BASE_URL", "https://api.openai-proxy.org"),
         CLOSEAI_API_KEY=os.getenv("CLOSEAI_API_KEY", ""),
         CLOSEAI_MODEL=os.getenv("CLOSEAI_MODEL", "gpt-5.6-sol"),
+        CLOSEAI_READ_TIMEOUT_SECONDS=int(os.getenv("CLOSEAI_READ_TIMEOUT_SECONDS", "300")),
         CLOSEAI_PREFER_ENV=os.getenv("CLOSEAI_PREFER_ENV", "0") == "1",
         RESEND_API_KEY=os.getenv("RESEND_API_KEY", ""),
         RESEND_FROM_EMAIL=os.getenv("RESEND_FROM_EMAIL", "").strip().lower(),
@@ -78,9 +79,14 @@ def create_app(test_config=None):
 
         user_id = session.get("user_id")
         g.user = get_db().execute(
-            "SELECT id, username, email, display_name, email_verified_at, is_admin, created_at FROM users WHERE id = ?",
+            "SELECT id, username, email, display_name, email_verified_at, is_admin, is_demo, demo_enabled, session_version, created_at FROM users WHERE id = ?",
             (user_id,),
         ).fetchone() if user_id else None
+        if g.user and g.user["is_demo"] and (
+            not g.user["demo_enabled"] or session.get("session_version", 0) != g.user["session_version"]
+        ):
+            session.clear()
+            g.user = None
 
     @app.after_request
     def security_headers(response):

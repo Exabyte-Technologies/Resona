@@ -31,6 +31,8 @@ def _response(message, ok=True, status=200):
 @account_bp.get("/")
 @login_required
 def settings():
+    if g.user["is_demo"]:
+        return redirect(url_for("player.index"))
     return render_template("account/settings.html", **_account_context())
 
 
@@ -38,6 +40,8 @@ def settings():
 @login_required
 def update_settings():
     require_csrf()
+    if g.user["is_demo"]:
+        return jsonify({"ok": False, "message": "The Demo account is managed by an administrator and cannot be changed."}), 403
     if not validate_captcha():
         return _response("Complete a fresh CAPTCHA verification and try again.", False, 400)
     db = get_db()

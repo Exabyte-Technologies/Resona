@@ -1310,6 +1310,93 @@ def test_agent_completion_uses_low_reasoning_for_rapid_and_falls_back_for_compat
     closeai._LOW_REASONING_UNSUPPORTED.clear()
 
 
+def test_agent_completion_recovers_from_transient_read_timeouts(app, monkeypatch):
+    import requests
+    from resona import closeai
+
+    calls = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def json(self):
+            return {"choices": [{"message": {"content": "Recovered", "tool_calls": []}}]}
+
+    def flaky_post(_url, **kwargs):
+        calls.append(kwargs)
+        if len(calls) < 3:
+            raise requests.exceptions.ReadTimeout("HTTPSConnectionPool: Read timed out")
+        return Response()
+
+    monkeypatch.setattr("resona.closeai.requests.post", flaky_post)
+    monkeypatch.setattr("resona.closeai.time.sleep", lambda _seconds: None)
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE settings SET value = 'sk-server-only' WHERE key = 'closeai_api_key'")
+        db.commit()
+        message = closeai.agent_completion([], [], API_KEY_PLACEHOLDER)
+    assert message["content"] == "Recovered"
+    assert len(calls) == 3
+    assert all(call["timeout"] == (10, 300.0) for call in calls)
+
+
+def test_agent_completion_retries_truncated_provider_json(app, monkeypatch):
+    from resona import closeai
+
+    attempts = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def json(self):
+            if len(attempts) < 3:
+                raise ValueError("Expecting value: line 1 column 1")
+            return {"choices": [{"message": {"content": "Recovered JSON", "tool_calls": []}}]}
+
+    def truncated_post(_url, **_kwargs):
+        attempts.append(1)
+        return Response()
+
+    monkeypatch.setattr("resona.closeai.requests.post", truncated_post)
+    monkeypatch.setattr("resona.closeai.time.sleep", lambda _seconds: None)
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE settings SET value = 'sk-server-only' WHERE key = 'closeai_api_key'")
+        db.commit()
+        message = closeai.agent_completion([], [], API_KEY_PLACEHOLDER)
+    assert len(attempts) == 3
+    assert message["content"] == "Recovered JSON"
+
+
+def test_provider_timeout_is_sanitized_after_automatic_retries(app, monkeypatch):
+    import requests
+    from resona import closeai
+
+    attempts = []
+
+    def timed_out(_url, **_kwargs):
+        attempts.append(1)
+        raise requests.exceptions.ReadTimeout("HTTPSConnectionPool(host=secret): Read timed out")
+
+    monkeypatch.setattr("resona.closeai.requests.post", timed_out)
+    monkeypatch.setattr("resona.closeai.time.sleep", lambda _seconds: None)
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE settings SET value = 'sk-server-only' WHERE key = 'closeai_api_key'")
+        db.commit()
+        try:
+            closeai.agent_completion([], [], API_KEY_PLACEHOLDER)
+            assert False, "provider timeout should fail after bounded retries"
+        except closeai.ProviderConnectionError as exc:
+            message = str(exc)
+    assert len(attempts) == 3
+    assert "automatic connection retries" in message
+    assert "Read timed out" not in message
+    assert "secret" not in message
+
+
 def test_prompt_safety_fails_closed_on_invalid_provider_decision(monkeypatch):
     from resona.prompt_safety import review_agent_prompt
 
@@ -1748,6 +1835,37 @@ def test_memory_tools_restore_context_and_require_a_progress_note_before_finish(
         assert "validation remains" in safe_path("listener", "memory/plan.md").read_text()
 
 
+def test_agent_recovers_from_incomplete_tool_argument_json(app, registered, monkeypatch):
+    from resona.agent_runtime import run_agent
+
+    replies = [
+        {"role": "assistant", "content": None, "tool_calls": [{
+            "id": "broken", "type": "function",
+            "function": {"name": "read_file", "arguments": '{"path":"pages/home.html"'},
+        }]},
+        {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "validate", "type": "function", "function": {"name": "validate_workspace", "arguments": "{}"}},
+            {"id": "finish", "type": "function", "function": {"name": "finish", "arguments": '{"summary":"Recovered cleanly"}'}},
+        ]},
+    ]
+    observed_tool_error = []
+
+    def fake_completion(messages, _tools, _credential, **_kwargs):
+        for message in messages:
+            if message.get("role") == "tool" and message.get("tool_call_id") == "broken":
+                observed_tool_error.append(message["content"])
+        return replies.pop(0)
+
+    monkeypatch.setattr("resona.agent_runtime.agent_completion", fake_completion)
+    with app.app_context():
+        user = get_db().execute("SELECT id FROM users WHERE username = 'listener'").fetchone()
+        result = run_agent("listener", user["id"], "Make a focused change", API_KEY_PLACEHOLDER, "Prompt", [], "", "{}", 3, rapid=True)
+    assert result["summary"] == "Recovered cleanly"
+    assert observed_tool_error
+    assert "incomplete JSON" in observed_tool_error[0]
+    assert "Expecting" not in observed_tool_error[0]
+
+
 def test_workspace_tools_move_and_delete_only_inside_user_sandbox(app, registered):
     from resona.agent_runtime import WorkspaceTools
     from resona.user_storage import create_snapshot
@@ -1773,3 +1891,137 @@ def test_workspace_tools_move_and_delete_only_inside_user_sandbox(app, registere
         assert snapshot_id in listed
         tools.execute("restore_snapshot", {"snapshot_id": snapshot_id})
         assert safe_path("listener", "pages/advanced.html").read_text() == original
+
+
+def test_demo_account_is_built_in_and_blank_password_opens_protected_demo(app, client, captcha):
+    from werkzeug.security import check_password_hash
+
+    with app.app_context():
+        demo = get_db().execute("SELECT * FROM users WHERE username = 'demo'").fetchone()
+        assert demo["email"] == ""
+        assert demo["display_name"] == "Demo"
+        assert demo["email_verified_at"]
+        assert demo["is_demo"] == 1
+        assert demo["demo_enabled"] == 1
+        assert demo["is_admin"] == 0
+        assert check_password_hash(demo["password_hash"], "")
+        assert "three deterministic requests" in safe_path("demo", "memory/notes.md").read_text()
+
+    client.get("/auth/login")
+    response = client.post("/auth/login", data={
+        "csrf_token": session_csrf(client),
+        "cap-token": captcha(),
+        "identity": "Demo",
+        "password": "",
+    })
+    assert response.status_code == 302
+    player = client.get("/player/")
+    assert b"Explore the Resona demo" in player.data
+    assert b'id="account-button"' not in player.data
+    assert b"Create a meditation guiding page" in player.data
+    assert client.get("/player/api/profile").get_json()["email"] is None
+    assert client.get("/account/").headers["Location"].endswith("/player/")
+    assert client.post("/account/", data={"csrf_token": session_csrf(client)}).status_code == 403
+    assert client.post("/agent/reset-ui", headers={"X-CSRF-Token": session_csrf(client)}).status_code == 403
+
+
+def test_demo_agent_installs_three_reviewed_pages_without_provider_calls(app, client, captcha, monkeypatch):
+    monkeypatch.setattr("resona.agent.review_agent_prompt", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("demo used safety provider")))
+    monkeypatch.setattr("resona.agent.run_agent", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("demo used AI provider")))
+    client.get("/auth/login")
+    assert client.post("/auth/login", data={
+        "csrf_token": session_csrf(client), "cap-token": captcha(), "identity": "demo", "password": "",
+    }).status_code == 302
+    csrf_token = session_csrf(client)
+    prompts = [
+        ("Create a meditation guiding page", "demo-meditation.html", None),
+        ("Create a motivation quotes page", "demo-motivation.html", None),
+        ("Create a sleep timer", "demo-sleep-timer.html", captcha()),
+    ]
+    for index, (prompt, filename, cap_token) in enumerate(prompts):
+        payload = {
+            "prompt": prompt,
+            "credential": API_KEY_PLACEHOLDER,
+            "request_id": f"demo-request-{index:04d}-fixed",
+        }
+        if cap_token:
+            payload["cap_token"] = cap_token
+        response = client.post("/agent/modify", headers={"X-CSRF-Token": csrf_token}, json=payload)
+        assert response.status_code == 200
+        assert response.get_json()["tools"] == ["demo_template"]
+        with app.app_context():
+            page = safe_path("demo", f"pages/{filename}")
+            assert page.is_file()
+            assert "<!doctype html>" in page.read_text()
+
+    with app.app_context():
+        navigation = json.loads(safe_path("demo", "nav.json").read_text())
+        assert navigation["default_page"] == "pages/demo-sleep-timer.html"
+        assert {item["id"] for item in navigation["nav_items"]} >= {
+            "demo-meditation", "demo-motivation", "demo-sleep-timer",
+        }
+
+
+def test_admin_controls_and_remotely_resets_protected_demo(app, client):
+    from resona.demo import install_demo_response
+    from resona.user_storage import user_root
+    from werkzeug.security import check_password_hash, generate_password_hash
+
+    with app.app_context():
+        db = get_db()
+        admin_id = db.execute(
+            "INSERT INTO users(username,email,password_hash,is_admin) VALUES (?,?,?,1)",
+            ("demo_admin", "demo-admin@example.com", generate_password_hash("long-admin-password", method="pbkdf2:sha256:600000")),
+        ).lastrowid
+        demo = db.execute("SELECT id, session_version FROM users WHERE is_demo = 1").fetchone()
+        install_demo_response("Create a sleep timer")
+        db.execute("INSERT INTO agent_runs(user_id, prompt, status) VALUES (?, 'demo run', 'complete')", (demo["id"],))
+        db.commit()
+        old_version = demo["session_version"]
+        demo_id = demo["id"]
+    with client.session_transaction() as session:
+        session["user_id"] = admin_id
+        session["csrf_token"] = "demo-admin-csrf"
+
+    disabled = client.post("/admin/demo", data={
+        "csrf_token": "demo-admin-csrf", "action": "settings",
+        "password_mode": "custom", "password": "new-demo-password",
+    })
+    assert disabled.status_code == 302
+    with app.app_context():
+        demo = get_db().execute("SELECT * FROM users WHERE id = ?", (demo_id,)).fetchone()
+        assert demo["demo_enabled"] == 0
+        assert demo["session_version"] == old_version + 1
+        assert check_password_hash(demo["password_hash"], "new-demo-password")
+
+    protected_edit = client.post(f"/admin/users/{demo_id}/edit", data={
+        "csrf_token": "demo-admin-csrf", "username": "replaced", "email": "replaced@example.com",
+    })
+    protected_delete = client.post(f"/admin/users/{demo_id}/delete", data={
+        "csrf_token": "demo-admin-csrf", "confirm_username": "demo",
+    })
+    assert protected_edit.status_code == protected_delete.status_code == 302
+    with app.app_context():
+        assert get_db().execute("SELECT username FROM users WHERE id = ?", (demo_id,)).fetchone()["username"] == "demo"
+
+    enabled = client.post("/admin/demo", data={
+        "csrf_token": "demo-admin-csrf", "action": "settings", "enabled": "1", "password_mode": "blank",
+    })
+    assert enabled.status_code == 302
+    with app.app_context():
+        demo = get_db().execute("SELECT * FROM users WHERE id = ?", (demo_id,)).fetchone()
+        assert demo["demo_enabled"] == 1
+        assert check_password_hash(demo["password_hash"], "")
+        pre_reset_version = demo["session_version"]
+
+    reset = client.post("/admin/demo", data={"csrf_token": "demo-admin-csrf", "action": "reset"})
+    assert reset.status_code == 302
+    with app.app_context():
+        db = get_db()
+        demo = db.execute("SELECT * FROM users WHERE id = ?", (demo_id,)).fetchone()
+        assert demo["session_version"] == pre_reset_version + 1
+        assert db.execute("SELECT COUNT(*) AS count FROM agent_runs WHERE user_id = ?", (demo_id,)).fetchone()["count"] == 0
+        assert not (user_root("demo") / "pages/demo-sleep-timer.html").exists()
+        navigation = json.loads(safe_path("demo", "nav.json").read_text())
+        assert navigation["default_page"] == "pages/home.html"
+        assert "three deterministic requests" in safe_path("demo", "memory/notes.md").read_text()

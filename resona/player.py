@@ -207,7 +207,7 @@ def profile():
     used = usage_bytes(g.user["username"])
     return jsonify({
         "username": g.user["username"],
-        "email": g.user["email"],
+        "email": None if g.user["is_demo"] else g.user["email"],
         "storage_used": used,
         "storage_limit": int(__import__("flask").current_app.config["USER_QUOTA_BYTES"]),
         "api_ready": bool(get_provider_settings()["api_key"]),

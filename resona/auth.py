@@ -28,6 +28,8 @@ def register():
         error = None
         if not USERNAME_RE.fullmatch(username):
             error = "Use 3–32 lowercase letters, numbers, underscores, or hyphens."
+        elif username == "demo":
+            error = "The Demo username is reserved."
         elif not display_name or len(display_name) > 80:
             error = "Enter a display name between 1 and 80 characters."
         elif "@" not in email:
@@ -71,8 +73,8 @@ def login():
         user = get_db().execute(
             "SELECT * FROM users WHERE username = ? OR email = ?", (identity, identity)
         ).fetchone()
-        if user and check_password_hash(user["password_hash"], request.form.get("password", "")):
-            if not user["email_verified_at"]:
+        if user and (not user["is_demo"] or user["demo_enabled"]) and check_password_hash(user["password_hash"], request.form.get("password", "")):
+            if not user["is_demo"] and not user["email_verified_at"]:
                 session["pending_verification_user_id"] = user["id"]
                 return render_template(
                     "auth/login.html",
@@ -81,6 +83,7 @@ def login():
                 ), 403
             session.clear()
             session["user_id"] = user["id"]
+            session["session_version"] = user["session_version"]
             session["csrf_token"] = secrets.token_urlsafe(32)
             destination = request.args.get("next", "")
             if not destination.startswith("/") or destination.startswith("//"):
@@ -182,7 +185,7 @@ def forgot():
     reset_token = None
     if request.method == "POST":
         require_csrf()
-        user = get_db().execute("SELECT id, username, email FROM users WHERE email = ?", (request.form.get("email", "").strip().lower(),)).fetchone()
+        user = get_db().execute("SELECT id, username, email FROM users WHERE email = ? AND is_demo = 0", (request.form.get("email", "").strip().lower(),)).fetchone()
         if user:
             token = secrets.token_urlsafe(36)
             digest = hashlib.sha256(token.encode()).hexdigest()
@@ -219,6 +222,9 @@ def reset(token):
         password = request.form.get("password", "")
         if len(password) < 10:
             flash("Use at least 10 characters.", "error")
+        elif get_db().execute("SELECT is_demo FROM users WHERE id = ?", (row["user_id"],)).fetchone()["is_demo"]:
+            flash("The Demo password can only be changed by an administrator.", "error")
+            return redirect(url_for("auth.login"))
         else:
             db = get_db()
             db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (generate_password_hash(password, method="pbkdf2:sha256:600000"), row["user_id"]))

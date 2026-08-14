@@ -44,6 +44,12 @@ def init_db():
     if existing_user_columns and "email_verified_at" not in existing_user_columns:
         db.execute("ALTER TABLE users ADD COLUMN email_verified_at TEXT")
         db.execute("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP")
+    if existing_user_columns and "is_demo" not in existing_user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0")
+    if existing_user_columns and "demo_enabled" not in existing_user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN demo_enabled INTEGER NOT NULL DEFAULT 1")
+    if existing_user_columns and "session_version" not in existing_user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0")
     db.execute("UPDATE users SET display_name = username WHERE display_name IS NULL OR trim(display_name) = ''")
     if existing_agent_columns and "client_request_id" not in existing_agent_columns:
         db.execute("ALTER TABLE agent_runs ADD COLUMN client_request_id TEXT")
@@ -69,6 +75,9 @@ def sync_environment_admin():
     password = current_app.config.get("ADMIN_PASSWORD", "")
     if not username or not password:
         return
+    if username == "demo":
+        current_app.logger.warning("ADMIN_USERNAME=demo is reserved; the environment administrator was not synchronized.")
+        return
     email = current_app.config.get("ADMIN_EMAIL", "").strip().lower() or f"{username}@resona.local"
     db = get_db()
     db.execute(
@@ -80,6 +89,36 @@ def sync_environment_admin():
     from .user_storage import initialize_user_storage, user_root
     if not user_root(username).exists():
         initialize_user_storage(username)
+
+
+def sync_demo_account():
+    """Create the reserved public demo once without overwriting admin changes."""
+    db = get_db()
+    demo = db.execute("SELECT * FROM users WHERE lower(username) = 'demo'").fetchone()
+    if demo is None:
+        cursor = db.execute(
+            "INSERT INTO users(username, email, display_name, email_verified_at, password_hash, is_demo, demo_enabled) "
+            "VALUES ('demo', '', 'Demo', CURRENT_TIMESTAMP, ?, 1, 1)",
+            (generate_password_hash("", method="pbkdf2:sha256:600000"),),
+        )
+        demo_id = cursor.lastrowid
+    else:
+        demo_id = demo["id"]
+        if not demo["is_demo"]:
+            db.execute(
+                "UPDATE users SET username='demo', email='', display_name='Demo', email_verified_at=CURRENT_TIMESTAMP, "
+                "password_hash=?, is_admin=0, is_demo=1, demo_enabled=1 WHERE id=?",
+                (generate_password_hash("", method="pbkdf2:sha256:600000"), demo_id),
+            )
+        else:
+            db.execute(
+                "UPDATE users SET username='demo', email='', display_name='Demo', email_verified_at=CURRENT_TIMESTAMP, is_admin=0 WHERE id=?",
+                (demo_id,),
+            )
+    db.commit()
+    from .demo import ensure_demo_workspace
+    ensure_demo_workspace()
+    return demo_id
 
 
 @click.command("init-db")
@@ -112,3 +151,4 @@ def init_app(app):
     with app.app_context():
         init_db()
         sync_environment_admin()
+        sync_demo_account()

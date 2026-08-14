@@ -188,8 +188,11 @@ class WorkspaceTools:
             raise FileNotFoundError(path)
         content = target.read_text(encoding="utf-8")
         occurrences = content.count(old_text)
+        if occurrences == 0 and "\r\n" in old_text:
+            old_text = old_text.replace("\r\n", "\n")
+            occurrences = content.count(old_text)
         if occurrences == 0:
-            raise ValueError("old_text was not found")
+            raise ValueError("The selected text no longer matches the file. Read the file again, then retry with its current exact text.")
         updated = content.replace(old_text, new_text, -1 if replace_all else 1)
         self.tool_write_file(path, updated)
         return _result(ok=True, path=_clean_relative(path), replacements=occurrences if replace_all else 1)
@@ -471,7 +474,10 @@ def run_agent(username, user_id, user_prompt, credential, base_prompt, skills, n
             try:
                 arguments = function.get("arguments") or "{}"
                 if isinstance(arguments, str):
-                    arguments = json.loads(arguments)
+                    try:
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError:
+                        raise ValueError("Tool arguments were incomplete JSON. Call the tool again with one valid JSON object.") from None
                 if not isinstance(arguments, dict):
                     raise ValueError("Tool arguments must be an object")
                 trace_agent_debug("tool_call", step=step, tool=name, arguments=arguments)
