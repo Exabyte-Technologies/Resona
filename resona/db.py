@@ -50,6 +50,8 @@ def init_db():
         db.execute("ALTER TABLE users ADD COLUMN demo_enabled INTEGER NOT NULL DEFAULT 1")
     if existing_user_columns and "session_version" not in existing_user_columns:
         db.execute("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0")
+    if existing_user_columns and "password_login_enabled" not in existing_user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN password_login_enabled INTEGER NOT NULL DEFAULT 1")
     db.execute("UPDATE users SET display_name = username WHERE display_name IS NULL OR trim(display_name) = ''")
     if existing_agent_columns and "client_request_id" not in existing_agent_columns:
         db.execute("ALTER TABLE agent_runs ADD COLUMN client_request_id TEXT")

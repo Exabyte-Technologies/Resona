@@ -6,7 +6,9 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .closeai import get_provider_settings, validate_base_url
 from .db import get_db
 from .demo import DEMO_USERNAME, reset_demo_workspace
+from .exabyte_oidc import exabyte_is_configured, get_exabyte_settings
 from .resend import get_resend_settings
+from .secret_store import encrypt_setting
 from .security import USERNAME_RE, admin_required, require_csrf
 from .user_controls import USER_CONTROL_KEYS, get_user_controls
 from .user_storage import delete_user_storage, initialize_user_storage, rename_user_storage, usage_bytes, user_root
@@ -36,7 +38,7 @@ def login():
 @admin_required
 def dashboard():
     db = get_db()
-    users = [dict(row) for row in db.execute("SELECT id, username, email, is_admin, is_demo, demo_enabled, created_at FROM users ORDER BY id DESC").fetchall()]
+    users = [dict(row) for row in db.execute("SELECT users.*, EXISTS(SELECT 1 FROM external_identities WHERE external_identities.user_id = users.id AND provider = 'exabyte') AS has_exabyte FROM users ORDER BY id DESC").fetchall()]
     for user in users:
         user["storage_used"] = usage_bytes(user["username"])
     skills = db.execute("SELECT skills.*, users.username FROM skills LEFT JOIN users ON users.id = skills.user_id ORDER BY skills.id DESC").fetchall()
@@ -57,6 +59,14 @@ def dashboard():
         "key_configured": bool(resend_settings["api_key"]),
         "ready": bool(resend_settings["api_key"] and resend_settings["from_email"]),
     }
+    exabyte_settings = get_exabyte_settings()
+    exabyte = {
+        "client_id": exabyte_settings["client_id"],
+        "secret_configured": bool(exabyte_settings["client_secret"]),
+        "ready": exabyte_is_configured(),
+        "issuer": exabyte_settings["issuer"],
+        "callback_url": exabyte_settings["callback_url"],
+    }
     demo = dict(db.execute("SELECT id, username, demo_enabled, session_version FROM users WHERE is_demo = 1").fetchone())
     user_controls = get_user_controls()
     stats = {
@@ -65,7 +75,7 @@ def dashboard():
         "runs": db.execute("SELECT COUNT(*) AS count FROM agent_runs").fetchone()["count"],
         "failures": db.execute("SELECT COUNT(*) AS count FROM agent_runs WHERE status = 'failed'").fetchone()["count"],
     }
-    return render_template("admin/dashboard.html", users=users, skills=skills, system_prompt=prompt, stats=stats, provider=provider, resend=resend, demo=demo, user_controls=user_controls)
+    return render_template("admin/dashboard.html", users=users, skills=skills, system_prompt=prompt, stats=stats, provider=provider, resend=resend, exabyte=exabyte, demo=demo, user_controls=user_controls)
 
 
 @admin_bp.post("/user-controls")
@@ -225,6 +235,12 @@ def edit_user(user_id):
             return redirect(url_for("admin.dashboard", user=user_id))
 
     old_username = user["username"]
+    identity = db.execute("SELECT 1 FROM external_identities WHERE provider = 'exabyte' AND user_id = ?", (user_id,)).fetchone()
+    if identity:
+        email = user["email"]
+        if password and not user["password_login_enabled"]:
+            flash("Exabyte-only accounts cannot be assigned a local password from Resona.", "error")
+            return redirect(url_for("admin.dashboard", user=user_id))
     try:
         assignments = ["username = ?", "email = ?", "is_admin = ?"]
         values = [username, email, int(is_admin)]
@@ -342,6 +358,54 @@ def update_resend():
         db.execute("INSERT INTO settings(key, value) VALUES ('resend_api_key', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP", ("" if clear_key else api_key,))
     db.commit()
     flash("Resend email settings updated.", "success")
+    return redirect(url_for("admin.dashboard"))
+
+
+@admin_bp.post("/exabyte-oidc")
+@admin_required
+def update_exabyte_oidc():
+    require_csrf()
+    disable = request.form.get("disable_exabyte_oidc") == "1"
+    client_id = request.form.get("client_id", "").strip()
+    client_secret = request.form.get("client_secret", "").strip()
+    current = get_exabyte_settings()
+    if disable:
+        client_id = ""
+        encrypted_secret = ""
+    else:
+        if not 3 <= len(client_id) <= 200 or any(character.isspace() for character in client_id):
+            flash("Enter a valid Exabyte client ID without spaces.", "error")
+            return redirect(url_for("admin.dashboard"))
+        if client_id != current["client_id"] and not client_secret:
+            flash("Enter the matching client secret when changing the Exabyte client ID.", "error")
+            return redirect(url_for("admin.dashboard"))
+        if client_secret and (not 8 <= len(client_secret) <= 500 or any(ord(character) < 32 for character in client_secret)):
+            flash("Enter a valid Exabyte client secret.", "error")
+            return redirect(url_for("admin.dashboard"))
+        if not client_secret and not current["client_secret"]:
+            flash("Enter the Exabyte client secret.", "error")
+            return redirect(url_for("admin.dashboard"))
+        if client_secret:
+            encrypted_secret = encrypt_setting(client_secret)
+        else:
+            row = get_db().execute(
+                "SELECT value FROM settings WHERE key = 'exabyte_oidc_client_secret_encrypted'"
+            ).fetchone()
+            encrypted_secret = row["value"] if row else ""
+
+    db = get_db()
+    db.execute(
+        "INSERT INTO settings(key, value) VALUES ('exabyte_oidc_client_id', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+        (client_id,),
+    )
+    db.execute(
+        "INSERT INTO settings(key, value) VALUES ('exabyte_oidc_client_secret_encrypted', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+        (encrypted_secret,),
+    )
+    db.commit()
+    flash("Exabyte sign-in was disabled." if disable else "Exabyte OIDC credentials were saved securely.", "success")
     return redirect(url_for("admin.dashboard"))
 
 

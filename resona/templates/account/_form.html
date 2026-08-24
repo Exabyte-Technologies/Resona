@@ -1,3 +1,25 @@
+{% if external_identity %}
+<div class="account-form">
+  <div class="account-status verified"><span>Managed by Exabyte Accounts</span><strong>{{ external_identity.email }}</strong><small>{{ external_identity.display_name }}</small>{% if external_identity.sync_warning %}<small class="identity-warning">{{ external_identity.sync_warning }}</small>{% endif %}</div>
+  <p class="identity-note">Your verified name and email are synchronized from <a href="{{ external_identity.issuer }}" target="_blank" rel="noopener noreferrer">Exabyte Accounts</a>.</p>
+</div>
+{% if g.user.password_login_enabled %}
+<form class="account-form" method="post" action="{{ url_for('account.update_settings') }}" data-account-form>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>Current Resona password<input type="password" name="current_password" autocomplete="current-password" required></label>
+  <label>New Resona password<input type="password" name="new_password" minlength="10" autocomplete="new-password" required><small>Exabyte sign-in remains available after this password changes.</small></label>
+  <div class="captcha-field"><span>Security check</span><cap-widget data-cap-api-endpoint="{{ url_for('captcha.challenge')|replace('challenge', '') }}" data-cap-hidden-field-name="cap-token" required></cap-widget></div>
+  <p class="account-form-status" data-account-status aria-live="polite"></p>
+  <div class="account-form-actions"><button class="primary" type="submit">Change Resona password</button></div>
+</form>
+<form class="account-form identity-action" method="post" action="{{ url_for('account.unlink_exabyte') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>Current Resona password<input type="password" name="current_password" autocomplete="current-password" required></label>
+  <div class="captcha-field"><span>Security check</span><cap-widget data-cap-api-endpoint="{{ url_for('captcha.challenge')|replace('challenge', '') }}" data-cap-hidden-field-name="cap-token" required></cap-widget></div>
+  <button class="ghost" type="submit">Unlink Exabyte sign-in</button>
+</form>
+{% else %}<p class="identity-note">This account signs in exclusively through Exabyte. Manage its password and identity details in Exabyte Accounts.</p>{% endif %}
+{% else %}
 <form class="account-form" method="post" action="{{ url_for('account.update_settings') }}" data-account-form>
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <div class="account-status {{ 'verified' if g.user.email_verified_at else 'pending' }}">
@@ -13,3 +35,11 @@
   <p class="account-form-status" data-account-status aria-live="polite"></p>
   <div class="account-form-actions"><button class="primary" type="submit">Save account changes</button>{% if not g.user.email_verified_at %}<button class="ghost" type="submit" name="action" value="resend_verification">Resend verification email</button>{% endif %}</div>
 </form>
+{% if exabyte_configured and g.user.password_login_enabled %}<form class="account-form identity-action" method="post" action="{{ url_for('account.link_exabyte') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <p class="identity-note">Add Exabyte as another secure way to sign in. Your verified Exabyte name and email will become the account profile.</p>
+  <label>Current Resona password<input type="password" name="current_password" autocomplete="current-password" required></label>
+  <div class="captcha-field"><span>Security check</span><cap-widget data-cap-api-endpoint="{{ url_for('captcha.challenge')|replace('challenge', '') }}" data-cap-hidden-field-name="cap-token" required></cap-widget></div>
+  <button class="exabyte-sign-in" type="submit"><img src="{{ url_for('static', filename='images/exabyte.png') }}" alt="" width="28" height="28" aria-hidden="true"><span>Link Exabyte account</span></button>
+</form>{% endif %}
+{% endif %}

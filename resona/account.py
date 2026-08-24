@@ -15,11 +15,17 @@ EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
 def _account_context():
+    from .exabyte_oidc import external_identity, exabyte_is_configured
+
     pending = get_db().execute(
         "SELECT email, expires_at FROM email_verifications WHERE user_id = ? AND purpose = 'email_change' AND used_at IS NULL ORDER BY id DESC LIMIT 1",
         (g.user["id"],),
     ).fetchone()
-    return {"pending_email": pending["email"] if pending else None}
+    return {
+        "pending_email": pending["email"] if pending else None,
+        "external_identity": external_identity(g.user["id"]),
+        "exabyte_configured": exabyte_is_configured(),
+    }
 
 
 def _response(message, ok=True, status=200):
@@ -61,6 +67,25 @@ def update_settings():
     new_password = request.form.get("new_password", "")
     user = db.execute("SELECT * FROM users WHERE id = ?", (g.user["id"],)).fetchone()
 
+    identity = db.execute(
+        "SELECT * FROM external_identities WHERE provider = 'exabyte' AND user_id = ?", (user["id"],)
+    ).fetchone()
+    if identity:
+        if not user["password_login_enabled"]:
+            return _response("Your name, email, and sign-in credentials are managed by Exabyte Accounts.", True)
+        if not new_password:
+            return _response("Your Exabyte profile is synchronized automatically. Enter a new password only when changing your Resona password.", True)
+        if not check_password_hash(user["password_hash"], current_password):
+            return _response("Enter your current Resona password to set a new password.", False, 400)
+        if len(new_password) < 10:
+            return _response("Use at least 10 characters for your new password.", False, 400)
+        db.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (generate_password_hash(new_password, method="pbkdf2:sha256:600000"), user["id"]),
+        )
+        db.commit()
+        return _response("Your Resona password was updated. Exabyte sign-in remains linked.")
+
     if action == "resend_verification":
         wait = verification_resend_wait(user["id"])
         if wait:
@@ -101,3 +126,43 @@ def update_settings():
         return _response("Your account changes could not be saved. Please try again later.", False, 503)
     message = "Account updated. Verify the link sent to your new email before it replaces your current address." if email != user["email"] else "Account updated."
     return _response(message)
+
+
+@account_bp.post("/exabyte/link")
+@login_required
+def link_exabyte():
+    from .exabyte_oidc import begin_exabyte_authorization, exabyte_is_configured, external_identity
+
+    require_csrf()
+    if not user_control_enabled("profile_editing"):
+        return _response("Profile editing has been disabled by the administrator.", False, 403)
+    if not exabyte_is_configured():
+        return _response("Sign in with Exabyte is not configured yet.", False, 503)
+    if external_identity(g.user["id"]):
+        return _response("This account is already linked to Exabyte.", False, 409)
+    if not validate_captcha():
+        return _response("Complete a fresh CAPTCHA verification and try again.", False, 400)
+    user = get_db().execute("SELECT * FROM users WHERE id = ?", (g.user["id"],)).fetchone()
+    if not user["password_login_enabled"] or not check_password_hash(user["password_hash"], request.form.get("current_password", "")):
+        return _response("Enter your current Resona password before linking Exabyte.", False, 400)
+    return begin_exabyte_authorization("link", g.user["id"], url_for("account.settings"))
+
+
+@account_bp.post("/exabyte/unlink")
+@login_required
+def unlink_exabyte():
+    require_csrf()
+    if not user_control_enabled("profile_editing"):
+        return _response("Profile editing has been disabled by the administrator.", False, 403)
+    if not validate_captcha():
+        return _response("Complete a fresh CAPTCHA verification and try again.", False, 400)
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE id = ?", (g.user["id"],)).fetchone()
+    identity = db.execute("SELECT id FROM external_identities WHERE provider = 'exabyte' AND user_id = ?", (user["id"],)).fetchone()
+    if not identity:
+        return _response("This account is not linked to Exabyte.", False, 404)
+    if not user["password_login_enabled"] or not check_password_hash(user["password_hash"], request.form.get("current_password", "")):
+        return _response("Enter your current Resona password before unlinking Exabyte.", False, 400)
+    db.execute("DELETE FROM external_identities WHERE id = ?", (identity["id"],))
+    db.commit()
+    return _response("Exabyte sign-in was unlinked. Your Resona password remains active.")

@@ -1,11 +1,12 @@
 import json
 import re
 
-from .user_storage import delete_user_storage, initialize_user_storage, safe_path, user_root, write_user_file
+from .user_storage import default_home_page, delete_user_storage, initialize_user_storage, safe_path, user_root, write_user_file
 
 
 DEMO_USERNAME = "demo"
 DEMO_SYSTEM_PROMPT = """Resona Demo accepts three deterministic requests: create a meditation guiding page, create a motivation quotes page, or create a sleep timer. Each request installs a reviewed built-in page without contacting an AI provider or allowing arbitrary workspace edits."""
+DEMO_CUSTOM_SYNTH = "window.ResonaCustomSynth = { version: 1, configure(engine) { engine.config.carrier = engine.config.ambient.droneFrequency; } };\n"
 
 DEMO_PAGE_STYLE = """
 <style>
@@ -42,6 +43,10 @@ DEMO_RESPONSES = {
 def ensure_demo_workspace():
     if not user_root(DEMO_USERNAME).exists():
         initialize_user_storage(DEMO_USERNAME)
+    # The Demo's built-in Home and synth hook are protected product surfaces.
+    # Repair stale pre-Demo or legacy copies without removing generated showcase pages.
+    safe_path(DEMO_USERNAME, "pages/home.html").write_text(default_home_page(), encoding="utf-8")
+    safe_path(DEMO_USERNAME, "static/custom_synth.js").write_text(DEMO_CUSTOM_SYNTH, encoding="utf-8")
     notes = safe_path(DEMO_USERNAME, "memory/notes.md")
     notes.write_text("# Resona Demo\n\n" + DEMO_SYSTEM_PROMPT + "\n", encoding="utf-8")
 

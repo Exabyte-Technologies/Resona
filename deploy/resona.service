@@ -1,7 +1,7 @@
 [Unit]
 Description=Resona healing music application
-After=network-online.target
-Wants=network-online.target
+After=network-online.target redis-server.service
+Wants=network-online.target redis-server.service
 
 [Service]
 Type=simple

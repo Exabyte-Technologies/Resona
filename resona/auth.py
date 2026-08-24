@@ -82,7 +82,7 @@ def login():
         user = get_db().execute(
             "SELECT * FROM users WHERE username = ? OR email = ?", (identity, identity)
         ).fetchone()
-        if user and (not user["is_demo"] or user["demo_enabled"]) and check_password_hash(user["password_hash"], request.form.get("password", "")):
+        if user and user["password_login_enabled"] and (not user["is_demo"] or user["demo_enabled"]) and check_password_hash(user["password_hash"], request.form.get("password", "")):
             if not user["is_demo"] and not user["email_verified_at"]:
                 session["pending_verification_user_id"] = user["id"]
                 return render_template(
@@ -196,7 +196,7 @@ def forgot():
     reset_token = None
     if request.method == "POST":
         require_csrf()
-        user = get_db().execute("SELECT id, username, email FROM users WHERE email = ? AND is_demo = 0", (request.form.get("email", "").strip().lower(),)).fetchone()
+        user = get_db().execute("SELECT id, username, email FROM users WHERE email = ? AND is_demo = 0 AND password_login_enabled = 1", (request.form.get("email", "").strip().lower(),)).fetchone()
         if user:
             token = secrets.token_urlsafe(36)
             digest = hashlib.sha256(token.encode()).hexdigest()

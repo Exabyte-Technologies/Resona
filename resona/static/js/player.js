@@ -23,6 +23,7 @@
     focus:{ beat:10, atmosphere:'restore', rootMidi:57 },
     awake:{ beat:18, atmosphere:'restore', rootMidi:48 }
   };
+  let sessionToggleGuardUntil = 0;
   function applyMode(name) {
     const preset = modePresets[name]; if (!preset) return;
     window.resonaAudio.config.mode = name;
@@ -104,8 +105,8 @@
         sendToPage('resona:files-result', { requestId, ...result, ok:response.ok && result.ok });
       } catch (error) { sendToPage('resona:files-result', { requestId, ok:false, error:error.message }); }
     } else if (data.type === 'resona:audio') {
-      if (data.action === 'toggle') window.resonaAudio.toggle();
-      else if (data.action === 'toggleSession') toggleSession();
+      if (data.action === 'toggle' && performance.now() >= sessionToggleGuardUntil) window.resonaAudio.toggle();
+      else if (data.action === 'toggleSession') { sessionToggleGuardUntil = performance.now() + 800; toggleSession(); }
       else if (data.action === 'applyMode') applyMode(data.mode);
       else if (data.action === 'setMaster' && Number.isFinite(Number(data.value))) window.resonaAudio.setMaster(data.value);
       else if (data.action === 'setBeat' && Number.isFinite(Number(data.value))) window.resonaAudio.setBeat(Math.max(.1, Math.min(100, Number(data.value))));
@@ -114,7 +115,7 @@
       else if (data.action === 'setNoise' && ['white','pink','brown','rain','ocean','forest'].includes(data.value)) { const restartsNoise = window.resonaAudio.noisePlaying; window.resonaAudio.setNoise(data.value); if (restartsNoise) setTimeout(sendAudioState, 950); }
       else if (data.action === 'setLayer' && typeof data.name === 'string' && Number.isFinite(Number(data.value))) window.resonaAudio.setLayer(data.name, Math.max(0, Math.min(100, Number(data.value))));
       else if (data.action === 'setVolume' && ['binaural','ambient','noise'].includes(data.name || data.volumeType) && Number.isFinite(Number(data.value ?? data.volumeValue))) window.resonaAudio.setVolume(data.name || data.volumeType, Math.max(0, Math.min(100, Number(data.value ?? data.volumeValue))));
-      else if (data.action === 'toggleAmbient') window.resonaAudio.toggleAmbient();
+      else if (data.action === 'toggleAmbient' && performance.now() >= sessionToggleGuardUntil) window.resonaAudio.toggleAmbient();
       else if (data.action === 'setDroneFrequency' && Number.isFinite(Number(data.value))) window.resonaAudio.setDroneFrequency(Math.max(40, Math.min(400, Number(data.value))));
       else if (data.action === 'setAtmosphere' && ['restore','melancholy','deep'].includes(data.value)) window.resonaAudio.setAtmosphere(data.value);
       else if (data.action === 'setAmbientParameter' && ['warmth','movement','space','texture','shimmer','output'].includes(data.name) && Number.isFinite(Number(data.value))) window.resonaAudio.setAmbientParameter(data.name, Math.max(0, Math.min(100, Number(data.value))));
@@ -156,10 +157,10 @@
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Account update failed');
       formStatus.textContent = data.message;
-      const accountName = document.querySelector('#account-button span'); if (accountName) accountName.textContent = form.elements.display_name.value.trim();
-      form.elements.current_password.value = ''; form.elements.new_password.value = '';
+      const accountName = document.querySelector('#account-button span'); if (accountName && form.elements.display_name) accountName.textContent = form.elements.display_name.value.trim();
+      if (form.elements.current_password) form.elements.current_password.value = ''; if (form.elements.new_password) form.elements.new_password.value = '';
     } catch (error) { formStatus.textContent = error.message; }
-    finally { submit.disabled = false; cap.reset(); }
+    finally { submit.disabled = false; cap?.reset(); }
   });
   document.querySelectorAll('#prompt-examples button').forEach(button => button.addEventListener('click', () => { prompt.value = button.textContent.replace(/^“|”$/g,''); prompt.focus(); }));
   const agentModeButtons = [...document.querySelectorAll('[data-agent-mode]')];

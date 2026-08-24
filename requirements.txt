@@ -1,6 +1,11 @@
 Flask==3.1.1
+Authlib==1.6.1
+Flask-Session==0.8.0
+cachelib==0.13.0
 capjs-server==0.2.1
+cryptography==50.0.0
 gunicorn==26.0.0
 python-dotenv==1.1.1
+redis==6.4.0
 requests==2.32.4
 pytest==8.4.1

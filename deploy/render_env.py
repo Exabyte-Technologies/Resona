@@ -44,6 +44,10 @@ def main():
         "CAPTCHA_CHALLENGE_DIFFICULTY": "4",
         "LETSENCRYPT_EMAIL": os.environ["LETSENCRYPT_EMAIL"],
         "PUBLIC_BASE_URL": "https://resona.neuorise.com",
+        "EXABYTE_OIDC_ISSUER": "https://accounts.exabyte.org.cn",
+        "EXABYTE_OIDC_CALLBACK_URL": "https://resona.neuorise.com/auth/exabyte/callback",
+        "EXABYTE_OIDC_SCOPES": "openid profile email",
+        "REDIS_URL": "redis://127.0.0.1:6379/1",
         "SESSION_COOKIE_SECURE": "1",
     }
     output = Path(sys.argv[1])

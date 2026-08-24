@@ -10,7 +10,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
-required_env=(SECRET_KEY DATABASE_PATH RESONA_STORAGE_ROOT RESONA_USER_QUOTA_BYTES ADMIN_USERNAME ADMIN_PASSWORD CLOSEAI_BASE_URL CLOSEAI_API_KEY CLOSEAI_MODEL CLOSEAI_PREFER_ENV RESEND_API_KEY RESEND_FROM_EMAIL RESEND_FROM_NAME CAPTCHA_CHALLENGE_COUNT CAPTCHA_CHALLENGE_DIFFICULTY LETSENCRYPT_EMAIL PUBLIC_BASE_URL SESSION_COOKIE_SECURE)
+required_env=(SECRET_KEY DATABASE_PATH RESONA_STORAGE_ROOT RESONA_USER_QUOTA_BYTES ADMIN_USERNAME ADMIN_PASSWORD CLOSEAI_BASE_URL CLOSEAI_API_KEY CLOSEAI_MODEL CLOSEAI_PREFER_ENV RESEND_API_KEY RESEND_FROM_EMAIL RESEND_FROM_NAME CAPTCHA_CHALLENGE_COUNT CAPTCHA_CHALLENGE_DIFFICULTY LETSENCRYPT_EMAIL PUBLIC_BASE_URL EXABYTE_OIDC_ISSUER EXABYTE_OIDC_CALLBACK_URL EXABYTE_OIDC_SCOPES REDIS_URL SESSION_COOKIE_SECURE)
 for name in "${required_env[@]}"; do
   if ! grep -q "^${name}=" "$uploaded_env"; then
     echo "The uploaded environment is missing $name" >&2
@@ -76,7 +76,8 @@ install -m 0755 "$app_dir/deploy/certbot-reload-nginx.sh" /etc/letsencrypt/renew
 install -m 0644 "$app_dir/deploy/resona.nginx" /etc/nginx/sites-available/resona
 nginx -t
 systemctl daemon-reload
-systemctl enable nginx resona certbot.timer
+systemctl enable nginx redis-server resona certbot.timer
+systemctl restart redis-server
 systemctl start certbot.timer
 systemctl restart resona
 systemctl restart nginx

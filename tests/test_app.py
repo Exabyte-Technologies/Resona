@@ -1,5 +1,6 @@
 import base64
 import json
+from pathlib import Path
 
 from resona.closeai import API_KEY_PLACEHOLDER
 from resona.db import get_db
@@ -134,6 +135,14 @@ def test_production_deployment_preserves_instance_and_uses_expected_host():
     assert '"RESEND_FROM_EMAIL"' in rendered_env
     assert "secrets.RESEND_API_KEY" in workflow
     assert "secrets.RESEND_FROM_EMAIL" in workflow
+    assert "secrets.EXABYTE_OIDC_CLIENT_ID" not in workflow
+    assert "secrets.EXABYTE_OIDC_CLIENT_SECRET" not in workflow
+    assert '"EXABYTE_OIDC_CLIENT_ID"' not in rendered_env
+    assert '"EXABYTE_OIDC_CLIENT_SECRET"' not in rendered_env
+    assert '"EXABYTE_OIDC_CALLBACK_URL": "https://resona.neuorise.com/auth/exabyte/callback"' in rendered_env
+    assert '"REDIS_URL": "redis://127.0.0.1:6379/1"' in rendered_env
+    assert "redis-server" in (root / "deploy/bootstrap-ubuntu.sh").read_text()
+    assert "redis-server.service" in service
 
 
 def test_registration_creates_isolated_default_workspace(app, registered):
@@ -519,6 +528,60 @@ def test_admin_manages_resend_settings_without_rendering_api_key(app, client):
     assert b"re_admin_secret" not in dashboard.data
     with app.app_context():
         assert get_db().execute("SELECT value FROM settings WHERE key = 'resend_api_key'").fetchone()["value"] == "re_admin_secret"
+
+
+def test_admin_stores_exabyte_credentials_encrypted_and_persists_them(app, client):
+    from resona import create_app
+    from resona.exabyte_oidc import get_exabyte_settings
+    from werkzeug.security import generate_password_hash
+
+    app.config.update({
+        "EXABYTE_OIDC_ISSUER": "https://accounts.exabyte.test",
+        "EXABYTE_OIDC_CALLBACK_URL": "https://resona.test/auth/exabyte/callback",
+    })
+    with app.app_context():
+        db = get_db()
+        admin_id = db.execute(
+            "INSERT INTO users(username,email,password_hash,is_admin) VALUES (?,?,?,1)",
+            ("oidcadmin", "oidcadmin@example.com", generate_password_hash("long-admin-password", method="pbkdf2:sha256:600000")),
+        ).lastrowid
+        db.commit()
+    with client.session_transaction() as session:
+        session["user_id"] = admin_id
+        session["csrf_token"] = "admin-oidc-csrf"
+
+    response = client.post("/admin/exabyte-oidc", data={
+        "csrf_token": "admin-oidc-csrf",
+        "client_id": "cli_admin_managed",
+        "client_secret": "super-secret-oidc-value",
+    })
+    assert response.status_code == 302
+    dashboard = client.get("/admin/")
+    assert b"Exabyte sign-in ready" in dashboard.data
+    assert b"cli_admin_managed" in dashboard.data
+    assert b"super-secret-oidc-value" not in dashboard.data
+    with app.app_context():
+        stored = get_db().execute(
+            "SELECT value FROM settings WHERE key = 'exabyte_oidc_client_secret_encrypted'"
+        ).fetchone()["value"]
+        assert stored.startswith("fernet:v1:")
+        assert "super-secret-oidc-value" not in stored
+        assert get_exabyte_settings()["client_secret"] == "super-secret-oidc-value"
+
+    restarted = create_app({
+        "TESTING": True,
+        "SECRET_KEY": app.config["SECRET_KEY"],
+        "DATABASE": app.config["DATABASE"],
+        "STORAGE_ROOT": app.config["STORAGE_ROOT"],
+        "EXABYTE_OIDC_ISSUER": "https://accounts.exabyte.test",
+        "EXABYTE_OIDC_CALLBACK_URL": "https://resona.test/auth/exabyte/callback",
+        "ADMIN_PASSWORD": "",
+    })
+    with restarted.app_context():
+        settings = get_exabyte_settings()
+        assert settings["client_id"] == "cli_admin_managed"
+        assert settings["client_secret"] == "super-secret-oidc-value"
+        assert settings["configured"] is True
 
 
 def test_resend_delivery_failure_blocks_unverifiable_registration(app, client, captcha, monkeypatch):
@@ -954,6 +1017,17 @@ def test_user_page_ranges_drag_on_the_first_phone_touch(registered):
     assert "setRangeFromPointer(control, event.clientX)" in page
     assert "setRangeFromPointer(control, moveEvent.clientX)" in page
     assert "control.dispatchEvent(new Event('input', { bubbles:true }))" in page
+
+
+def test_session_play_control_cannot_bind_conflicting_layer_toggles():
+    project_root = Path(__file__).resolve().parents[1]
+    bridge = (project_root / "resona/storage.py").read_text(encoding="utf-8")
+    player = (project_root / "resona/static/js/player.js").read_text(encoding="utf-8")
+
+    assert "[data-playback-toggle]:not([data-session-toggle])" in bridge
+    assert "[data-ambient-toggle]:not([data-session-toggle])" in bridge
+    assert "sessionToggleGuardUntil = performance.now() + 800" in player
+    assert player.count("performance.now() >= sessionToggleGuardUntil") == 2
 
 
 def test_frontend_persistent_file_api_supports_full_lifecycle(app, registered):
@@ -2087,6 +2161,28 @@ def test_demo_account_is_built_in_and_blank_password_opens_protected_demo(app, c
     assert client.post("/agent/reset-ui", headers={"X-CSRF-Token": session_csrf(client)}).status_code == 403
 
 
+def test_demo_startup_repairs_protected_home_playback_controls(app):
+    from resona.demo import DEMO_CUSTOM_SYNTH, ensure_demo_workspace
+    from resona.user_storage import default_home_page
+
+    with app.app_context():
+        stale_home = '<!doctype html><html><body><button data-session-toggle data-playback-toggle data-ambient-toggle>Play</button></body></html>'
+        safe_path("demo", "pages/home.html").write_text(stale_home, encoding="utf-8")
+        safe_path("demo", "static/custom_synth.js").write_text("window.ResonaCustomSynth = null;", encoding="utf-8")
+        showcase = safe_path("demo", "pages/demo-sleep-timer.html")
+        showcase.write_text("preserve this generated demo page", encoding="utf-8")
+
+        ensure_demo_workspace()
+
+        repaired_home = safe_path("demo", "pages/home.html").read_text(encoding="utf-8")
+        assert repaired_home == default_home_page()
+        assert repaired_home.count("data-session-toggle") == 1
+        assert "data-playback-toggle" not in repaired_home
+        assert "data-ambient-toggle" not in repaired_home
+        assert safe_path("demo", "static/custom_synth.js").read_text(encoding="utf-8") == DEMO_CUSTOM_SYNTH
+        assert showcase.read_text(encoding="utf-8") == "preserve this generated demo page"
+
+
 def test_demo_agent_installs_three_reviewed_pages_without_provider_calls(app, client, captcha, monkeypatch):
     monkeypatch.setattr("resona.agent.review_agent_prompt", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("demo used safety provider")))
     monkeypatch.setattr("resona.agent.run_agent", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("demo used AI provider")))
@@ -2187,3 +2283,293 @@ def test_admin_controls_and_remotely_resets_protected_demo(app, client):
         navigation = json.loads(safe_path("demo", "nav.json").read_text())
         assert navigation["default_page"] == "pages/home.html"
         assert "three deterministic requests" in safe_path("demo", "memory/notes.md").read_text()
+
+
+def configure_exabyte(app):
+    app.config.update({
+        "EXABYTE_OIDC_ISSUER": "https://accounts.exabyte.test",
+        "EXABYTE_OIDC_CALLBACK_URL": "https://resona.test/auth/exabyte/callback",
+        "EXABYTE_OIDC_SCOPES": "openid profile email",
+    })
+    with app.app_context():
+        from resona.secret_store import encrypt_setting
+
+        db = get_db()
+        db.execute("UPDATE settings SET value = 'cli_resona_test' WHERE key = 'exabyte_oidc_client_id'")
+        db.execute(
+            "UPDATE settings SET value = ? WHERE key = 'exabyte_oidc_client_secret_encrypted'",
+            (encrypt_setting("test-client-secret"),),
+        )
+        db.commit()
+
+
+def test_exabyte_oidc_schema_configuration_and_branded_login(app, client):
+    from resona.exabyte_oidc import _client
+
+    configure_exabyte(app)
+    with app.app_context():
+        columns = {row["name"] for row in get_db().execute("PRAGMA table_info(users)").fetchall()}
+        assert "password_login_enabled" in columns
+        indexes = get_db().execute("PRAGMA index_list(external_identities)").fetchall()
+        assert sum(bool(row["unique"]) for row in indexes) == 2
+        oidc = _client()
+        assert oidc.client_kwargs["code_challenge_method"] == "S256"
+        assert oidc.client_kwargs["id_token_signed_response_alg"] == "RS256"
+        assert set(oidc.client_kwargs["scope"].split()) == {"openid", "profile", "email"}
+
+    page = client.get("/auth/login")
+    assert b"Sign in with Exabyte" in page.data
+    assert b"/static/images/exabyte.png" in page.data
+    assert client.get("/static/images/exabyte.png").status_code == 200
+
+
+def test_exabyte_login_starts_server_side_transaction_without_captcha(app, client, monkeypatch):
+    from urllib.parse import parse_qs, urlsplit
+    import resona.exabyte_oidc as oidc_module
+
+    configure_exabyte(app)
+    with app.app_context():
+        oidc = oidc_module._client()
+        oidc.server_metadata.update({
+            "_loaded_at": __import__("time").time(),
+            "issuer": "https://accounts.exabyte.test",
+            "authorization_endpoint": "https://accounts.exabyte.test/oauth/authorize",
+            "token_endpoint": "https://accounts.exabyte.test/oauth/token",
+            "userinfo_endpoint": "https://accounts.exabyte.test/oauth/userinfo",
+            "jwks_uri": "https://accounts.exabyte.test/oauth/jwks",
+            "revocation_endpoint": "https://accounts.exabyte.test/oauth/revoke",
+        })
+    monkeypatch.setattr(oidc_module, "_client", lambda: oidc)
+    response = client.get("/auth/exabyte?next=https://evil.example/steal")
+    assert response.status_code == 302
+    query = parse_qs(urlsplit(response.headers["Location"]).query)
+    assert query["code_challenge_method"] == ["S256"]
+    assert query["code_challenge"] and query["nonce"] and query["state"]
+    with client.session_transaction() as session:
+        assert session["exabyte_oidc_purpose"] == "login"
+        assert session["exabyte_oidc_after_login"] == "/player/"
+        assert session["exabyte_oidc_started_at"]
+        state_data = session[f"_state_exabyte_{query['state'][0]}"]["data"]
+        assert state_data["code_verifier"]
+        assert state_data["nonce"] == query["nonce"][0]
+        assert state_data["redirect_uri"] == "https://resona.test/auth/exabyte/callback"
+
+
+def _oidc_token(algorithm="RS256"):
+    header = base64.urlsafe_b64encode(json.dumps({"alg": algorithm, "kid": "test-key"}).encode()).decode().rstrip("=")
+    return {
+        "id_token": f"{header}.e30.signature",
+        "access_token": "access-secret",
+        "refresh_token": "refresh-secret",
+        "userinfo": {"sub": "usr_new_listener"},
+    }
+
+
+class FakeExabyteClient:
+    server_metadata = {"revocation_endpoint": "https://accounts.exabyte.test/oauth/revoke"}
+
+    def __init__(self, claims, algorithm="RS256"):
+        self.claims = claims
+        self.algorithm = algorithm
+
+    def authorize_access_token(self):
+        token = _oidc_token(self.algorithm)
+        token["userinfo"] = {"sub": self.claims["sub"]}
+        return token
+
+    def load_server_metadata(self):
+        return {**self.server_metadata,
+            "issuer": "https://accounts.exabyte.test",
+            "authorization_endpoint": "https://accounts.exabyte.test/oauth/authorize",
+            "token_endpoint": "https://accounts.exabyte.test/oauth/token",
+            "userinfo_endpoint": "https://accounts.exabyte.test/oauth/userinfo",
+            "jwks_uri": "https://accounts.exabyte.test/oauth/jwks",
+        }
+
+    def userinfo(self, token):
+        assert token["access_token"] == "access-secret"
+        return self.claims
+
+
+def prepare_oidc_callback(client, purpose="login", user_id=None, destination="/player/"):
+    with client.session_transaction() as session:
+        session["exabyte_oidc_started_at"] = __import__("time").time()
+        session["exabyte_oidc_purpose"] = purpose
+        session["exabyte_oidc_link_user_id"] = user_id
+        session["exabyte_oidc_after_login"] = destination
+
+
+def patch_exabyte_provider(monkeypatch, claims, algorithm="RS256"):
+    import resona.exabyte_oidc as oidc_module
+
+    revoked = []
+    fake = FakeExabyteClient(claims, algorithm)
+    monkeypatch.setattr(oidc_module, "_client", lambda: fake)
+    monkeypatch.setattr(oidc_module.requests, "post", lambda url, **kwargs: revoked.append((url, kwargs["data"]["token"])))
+    return revoked
+
+
+def test_exabyte_callback_provisions_verified_user_workspace_and_revokes_tokens(app, client, monkeypatch):
+    configure_exabyte(app)
+    claims = {
+        "sub": "usr_new_listener", "email": "new@exabyte.test", "email_verified": True,
+        "name": "New Listener", "preferred_username": "newlistener",
+    }
+    revoked = patch_exabyte_provider(monkeypatch, claims)
+    prepare_oidc_callback(client)
+
+    response = client.get("/auth/exabyte/callback?code=one-time&state=validated")
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/player/")
+    assert revoked == [
+        ("https://accounts.exabyte.test/oauth/revoke", "refresh-secret"),
+        ("https://accounts.exabyte.test/oauth/revoke", "access-secret"),
+    ]
+    with app.app_context():
+        user = get_db().execute("SELECT * FROM users WHERE username = 'newlistener'").fetchone()
+        assert user["email"] == "new@exabyte.test"
+        assert user["display_name"] == "New Listener"
+        assert user["email_verified_at"]
+        assert user["password_login_enabled"] == 0
+        identity = get_db().execute("SELECT * FROM external_identities WHERE user_id = ?", (user["id"],)).fetchone()
+        assert identity["subject"] == "usr_new_listener"
+        assert identity["issuer"] == "https://accounts.exabyte.test"
+        assert safe_path("newlistener", "pages/home.html").exists()
+        user_id = user["id"]
+    with client.session_transaction() as session:
+        assert "access-secret" not in repr(dict(session))
+        assert "refresh-secret" not in repr(dict(session))
+        assert session["user_id"] == user_id
+
+    account = client.get("/account/")
+    assert b"Managed by Exabyte Accounts" in account.data
+    assert b"Current Resona password" not in account.data
+
+
+def test_exabyte_never_merges_by_email_and_respects_registration_switch(app, client, monkeypatch):
+    from werkzeug.security import generate_password_hash
+
+    configure_exabyte(app)
+    with app.app_context():
+        db = get_db()
+        db.execute(
+            "INSERT INTO users(username,email,email_verified_at,password_hash) VALUES ('existing','same@exabyte.test',CURRENT_TIMESTAMP,?)",
+            (generate_password_hash("existing-password", method="pbkdf2:sha256:600000"),),
+        )
+        db.commit()
+    claims = {"sub": "usr_conflict", "email": "same@exabyte.test", "email_verified": True, "name": "Conflict", "preferred_username": "conflict"}
+    patch_exabyte_provider(monkeypatch, claims)
+    prepare_oidc_callback(client)
+    response = client.get("/auth/exabyte/callback?code=x&state=y", follow_redirects=True)
+    assert b"link Exabyte from account settings" in response.data
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) AS count FROM external_identities").fetchone()["count"] == 0
+        get_db().execute("UPDATE settings SET value = '0' WHERE key = 'user_registration_enabled'")
+        get_db().commit()
+    claims["sub"], claims["email"], claims["preferred_username"] = "usr_blocked", "blocked@exabyte.test", "blocked"
+    prepare_oidc_callback(client)
+    response = client.get("/auth/exabyte/callback?code=x&state=y", follow_redirects=True)
+    assert b"disabled by the administrator" in response.data
+    with app.app_context():
+        assert get_db().execute("SELECT 1 FROM users WHERE username = 'blocked'").fetchone() is None
+
+
+def test_exabyte_login_switch_hides_button_and_blocks_oidc(app, client, monkeypatch):
+    configure_exabyte(app)
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE settings SET value = '0' WHERE key = 'user_login_enabled'")
+        db.commit()
+    assert b"Sign in with Exabyte" not in client.get("/auth/login").data
+
+    claims = {
+        "sub": "usr_login_disabled", "email": "disabled@exabyte.test", "email_verified": True,
+        "name": "Disabled Login", "preferred_username": "disabledlogin",
+    }
+    patch_exabyte_provider(monkeypatch, claims)
+    prepare_oidc_callback(client)
+    response = client.get("/auth/exabyte/callback?code=x&state=y", follow_redirects=True)
+    assert b"disabled by the administrator" in response.data
+    with app.app_context():
+        assert get_db().execute("SELECT 1 FROM users WHERE username = 'disabledlogin'").fetchone() is None
+
+
+def test_exabyte_mapped_login_keeps_local_email_on_sync_conflict(app, client, monkeypatch):
+    from werkzeug.security import generate_password_hash
+
+    configure_exabyte(app)
+    claims = {
+        "sub": "usr_sync_listener", "email": "original@exabyte.test", "email_verified": True,
+        "name": "Original Name", "preferred_username": "synclistener",
+    }
+    patch_exabyte_provider(monkeypatch, claims)
+    prepare_oidc_callback(client)
+    assert client.get("/auth/exabyte/callback?code=x&state=y").status_code == 302
+    client.get("/auth/logout")
+
+    with app.app_context():
+        db = get_db()
+        db.execute(
+            "INSERT INTO users(username,email,email_verified_at,password_hash) VALUES ('emailowner','new@exabyte.test',CURRENT_TIMESTAMP,?)",
+            (generate_password_hash("email-owner-password", method="pbkdf2:sha256:600000"),),
+        )
+        db.commit()
+    claims.update({"email": "new@exabyte.test", "name": "Updated Name"})
+    patch_exabyte_provider(monkeypatch, claims)
+    prepare_oidc_callback(client)
+    response = client.get("/auth/exabyte/callback?code=x&state=y", follow_redirects=True)
+    assert b"previous Resona email was retained" in response.data
+    with app.app_context():
+        user = get_db().execute("SELECT * FROM users WHERE username = 'synclistener'").fetchone()
+        identity = get_db().execute("SELECT * FROM external_identities WHERE user_id = ?", (user["id"],)).fetchone()
+        assert user["email"] == "original@exabyte.test"
+        assert user["display_name"] == "Updated Name"
+        assert identity["email"] == "new@exabyte.test"
+        assert identity["sync_warning"]
+
+
+def test_exabyte_explicit_link_keeps_password_and_protected_unlink(app, registered, captcha, monkeypatch):
+    configure_exabyte(app)
+    with app.app_context():
+        user_id = get_db().execute("SELECT id FROM users WHERE username = 'listener'").fetchone()["id"]
+    claims = {
+        "sub": "usr_linked", "email": "listener@example.com", "email_verified": True,
+        "name": "Linked Listener", "preferred_username": "listener",
+    }
+    patch_exabyte_provider(monkeypatch, claims)
+    prepare_oidc_callback(registered, purpose="link", user_id=user_id, destination="/account/")
+    response = registered.get("/auth/exabyte/callback?code=x&state=y")
+    assert response.status_code == 302
+    with app.app_context():
+        user = get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        assert user["password_login_enabled"] == 1
+        assert get_db().execute("SELECT subject FROM external_identities WHERE user_id = ?", (user_id,)).fetchone()["subject"] == "usr_linked"
+
+    page = registered.get("/account/")
+    assert b"Current Resona password" in page.data
+    assert b"Unlink Exabyte sign-in" in page.data
+    response = registered.post("/account/exabyte/unlink", data={
+        "csrf_token": session_csrf(registered),
+        "cap-token": captcha(),
+        "current_password": "healing-sound-123",
+    })
+    assert response.status_code == 302
+    with app.app_context():
+        assert get_db().execute("SELECT 1 FROM external_identities WHERE user_id = ?", (user_id,)).fetchone() is None
+
+
+def test_exabyte_rejects_unverified_email_and_non_rs256_tokens(app, client, monkeypatch):
+    configure_exabyte(app)
+    claims = {"sub": "usr_unverified", "email": "unverified@exabyte.test", "email_verified": False, "name": "No", "preferred_username": "unverified"}
+    patch_exabyte_provider(monkeypatch, claims)
+    prepare_oidc_callback(client)
+    assert client.get("/auth/exabyte/callback?code=x&state=y").status_code == 302
+    with app.app_context():
+        assert get_db().execute("SELECT 1 FROM users WHERE username = 'unverified'").fetchone() is None
+
+    claims["email_verified"] = True
+    patch_exabyte_provider(monkeypatch, claims, algorithm="HS256")
+    prepare_oidc_callback(client)
+    assert client.get("/auth/exabyte/callback?code=x&state=y").status_code == 302
+    with app.app_context():
+        assert get_db().execute("SELECT 1 FROM users WHERE username = 'unverified'").fetchone() is None

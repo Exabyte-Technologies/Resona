@@ -3,6 +3,9 @@ import secrets
 from pathlib import Path
 
 from flask import Flask, g, redirect, session, url_for
+from flask_session import Session
+from cachelib import SimpleCache
+from redis import Redis
 from dotenv import load_dotenv
 
 from .db import close_db, init_app as init_db_app
@@ -27,6 +30,10 @@ def create_app(test_config=None):
         RESEND_FROM_EMAIL=os.getenv("RESEND_FROM_EMAIL", "").strip().lower(),
         RESEND_FROM_NAME=os.getenv("RESEND_FROM_NAME", "Resona").strip(),
         PUBLIC_BASE_URL=os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/"),
+        EXABYTE_OIDC_ISSUER=os.getenv("EXABYTE_OIDC_ISSUER", "https://accounts.exabyte.org.cn").strip().rstrip("/"),
+        EXABYTE_OIDC_CALLBACK_URL=os.getenv("EXABYTE_OIDC_CALLBACK_URL", "").strip(),
+        EXABYTE_OIDC_SCOPES=os.getenv("EXABYTE_OIDC_SCOPES", "openid profile email").strip(),
+        REDIS_URL=os.getenv("REDIS_URL", "").strip(),
         AGENT_MAX_STEPS=int(os.getenv("AGENT_MAX_STEPS", "80")),
         CAPTCHA_CHALLENGE_COUNT=int(os.getenv("CAPTCHA_CHALLENGE_COUNT", "50")),
         CAPTCHA_CHALLENGE_DIFFICULTY=int(os.getenv("CAPTCHA_CHALLENGE_DIFFICULTY", "4")),
@@ -37,6 +44,8 @@ def create_app(test_config=None):
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "0") == "1",
+        SESSION_COOKIE_NAME="resona_session",
+        SESSION_PERMANENT=False,
         MAX_CONTENT_LENGTH=8 * 1024 * 1024,
     )
     if os.getenv("DATABASE_PATH"):
@@ -47,6 +56,14 @@ def create_app(test_config=None):
         app.config["USER_QUOTA_BYTES"] = int(os.getenv("RESONA_USER_QUOTA_BYTES"))
     if test_config:
         app.config.update(test_config)
+
+    if app.config.get("REDIS_URL"):
+        app.config["SESSION_TYPE"] = "redis"
+        app.config["SESSION_REDIS"] = Redis.from_url(app.config["REDIS_URL"])
+    else:
+        app.config["SESSION_TYPE"] = "cachelib"
+        app.config["SESSION_CACHELIB"] = SimpleCache(default_timeout=12 * 60 * 60)
+    Session(app)
 
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     Path(app.config["STORAGE_ROOT"]).mkdir(parents=True, exist_ok=True)
@@ -59,8 +76,10 @@ def create_app(test_config=None):
     from .storage import storage_bp
     from .account import account_bp
     from .captcha import captcha_bp, init_captcha
+    from .exabyte_oidc import exabyte_bp, init_exabyte_oidc
 
     init_captcha(app)
+    init_exabyte_oidc(app)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(player_bp)
@@ -68,6 +87,7 @@ def create_app(test_config=None):
     app.register_blueprint(storage_bp)
     app.register_blueprint(account_bp)
     app.register_blueprint(captcha_bp)
+    app.register_blueprint(exabyte_bp)
 
     @app.get("/")
     def home():
@@ -79,7 +99,7 @@ def create_app(test_config=None):
 
         user_id = session.get("user_id")
         g.user = get_db().execute(
-            "SELECT id, username, email, display_name, email_verified_at, is_admin, is_demo, demo_enabled, session_version, created_at FROM users WHERE id = ?",
+            "SELECT id, username, email, display_name, email_verified_at, password_login_enabled, is_admin, is_demo, demo_enabled, session_version, created_at FROM users WHERE id = ?",
             (user_id,),
         ).fetchone() if user_id else None
         if g.user and (
@@ -104,13 +124,14 @@ def create_app(test_config=None):
 
     @app.context_processor
     def inject_csrf():
+        from .exabyte_oidc import exabyte_is_configured
         from .user_controls import get_user_controls
 
         token = session.get("csrf_token")
         if not token:
             token = secrets.token_urlsafe(32)
             session["csrf_token"] = token
-        return {"csrf_token": token, "user_controls": get_user_controls()}
+        return {"csrf_token": token, "user_controls": get_user_controls(), "exabyte_configured": exabyte_is_configured()}
 
     app.teardown_appcontext(close_db)
     return app

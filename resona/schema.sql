@@ -5,11 +5,28 @@ CREATE TABLE IF NOT EXISTS users (
     display_name TEXT,
     email_verified_at TEXT,
     password_hash TEXT NOT NULL,
+    password_login_enabled INTEGER NOT NULL DEFAULT 1,
     is_admin INTEGER NOT NULL DEFAULT 0,
     is_demo INTEGER NOT NULL DEFAULT 0,
     demo_enabled INTEGER NOT NULL DEFAULT 1,
     session_version INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS external_identities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    issuer TEXT NOT NULL,
+    email TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    email_verified INTEGER NOT NULL DEFAULT 0,
+    sync_warning TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, subject),
+    UNIQUE(provider, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS email_verifications (
@@ -90,3 +107,5 @@ INSERT OR IGNORE INTO settings(key, value) VALUES ('user_registration_enabled', 
 INSERT OR IGNORE INTO settings(key, value) VALUES ('user_login_enabled', '1');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('password_recovery_enabled', '1');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('profile_editing_enabled', '1');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('exabyte_oidc_client_id', '');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('exabyte_oidc_client_secret_encrypted', '');

@@ -19,6 +19,7 @@ Resona is an adaptive healing-music web application. It combines a procedural We
 - Per-user 1 GB quotas, authenticated storage routes, path isolation, snapshots, and rollback
 - Server-side OpenAI-compatible API proxying with a client credential placeholder
 - Resend-powered registration welcome emails and secure password reset links
+- Exabyte Accounts OIDC sign-in with PKCE, immutable-sub account mapping, explicit linking, and automatic private-workspace provisioning
 - Admin controls for shared AI and email provider configuration, users, prompts, skills, and additional admins
 
 ## Local setup
@@ -48,6 +49,8 @@ Set `CLOSEAI_PREFER_ENV=1` in managed deployments so the current environment key
 To enable email, save a Resend API key, sender name, and sender email in the admin control center, or set `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and `RESEND_FROM_NAME` on the server. Registration sends a 24-hour verification link and fails closed if production email delivery is unavailable. New accounts remain signed out and cannot sign in until that link is used. Email changes stay pending until the new address is verified; password recovery uses a separate single-use link that expires after 30 minutes. Set `PUBLIC_BASE_URL` to the public HTTPS origin in production so emailed links always use the canonical application address. The sender domain must be verified in Resend.
 
 Login, registration, and account edits use the self-hosted Cap.js proof-of-work CAPTCHA. Every third AI request in a rolling one-hour window requires a fresh CAPTCHA, and each verification token is consumed once. The official widget and WASM solver are served locally under the application CSP. `CAPTCHA_CHALLENGE_COUNT` and `CAPTCHA_CHALLENGE_DIFFICULTY` default to 50 and 4.
+
+To enable **Sign in with Exabyte**, register a confidential `Resona` client in Exabyte Accounts with the exact callbacks `http://localhost:5000/auth/exabyte/callback` and `https://resona.neuorise.com/auth/exabyte/callback`, scopes `openid profile email`, grants `authorization_code refresh_token`, owning organization `Exabyte`, and permission namespace `resona`. Set the client ID and one-time client secret in **Control center → Exabyte Accounts** after deployment. The secret is encrypted at rest in the persistent SQLite database and is never redisplayed. Configure `EXABYTE_OIDC_ISSUER`, `EXABYTE_OIDC_CALLBACK_URL`, and `REDIS_URL` through the server environment. Resona fetches UserInfo, maps identities only by immutable `sub`, revokes returned tokens, and keeps its own Redis-backed session. First-time users receive a private workspace; matching emails are never merged automatically.
 
 When `ADMIN_PASSWORD` is non-empty, startup creates or synchronizes the administrator named by `ADMIN_USERNAME` (default `admin`). `ADMIN_EMAIL` is optional and defaults to `<username>@resona.local`. Restart the application after changing these values.
 
@@ -79,6 +82,7 @@ Configure these GitHub repository or `production` environment secrets before run
 - `RESEND_API_KEY`
 - `RESEND_FROM_EMAIL`: sender address on a domain verified in Resend
 - `LETSENCRYPT_EMAIL`: email used to register the Let’s Encrypt certificate
+- Exabyte client ID and secret: saved through the protected admin control center, not GitHub secrets
 
 The `resonahost` account must already exist and have non-interactive `sudo` access for package, systemd, Nginx, and Certbot management. DNS for `resona.neuorise.com` must point to `157.245.192.56`, and inbound ports 80 and 443 must be open. Deployment obtains or reuses a Let’s Encrypt certificate through the webroot challenge, enables automatic renewal, redirects HTTP to HTTPS, enables HSTS, verifies the live certificate locally, and sets `SESSION_COOKIE_SECURE=1`.
 

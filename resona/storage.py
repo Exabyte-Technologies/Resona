@@ -103,7 +103,7 @@ PAGE_BRIDGE = r'''<script data-resona-bridge>
     });
     send('resona:audio', { action:'setBeat', value:button.dataset.band });
   }));
-  document.querySelectorAll('[data-playback-toggle]').forEach(button => button.addEventListener('click', () => send('resona:audio', { action:'toggle' })));
+  document.querySelectorAll('[data-playback-toggle]:not([data-session-toggle])').forEach(button => button.addEventListener('click', () => send('resona:audio', { action:'toggle' })));
   const updateBinauralKnob = (control, value = control.value) => { const minimum = Number(control.min), maximum = Number(control.max), normalized = (Number(value) - minimum) / (maximum - minimum) * 100; control.parentElement.style.setProperty('--value', Math.max(0, Math.min(100, normalized))); const output = control.parentElement.querySelector('output'); if (output) output.textContent = `${Number(value).toFixed(Number(value) % 1 ? 1 : 0)} Hz`; };
   document.querySelectorAll('[data-binaural-mode]').forEach(button => button.addEventListener('click', () => send('resona:audio', { action:'setBinauralMode', value:button.dataset.binauralMode })));
   document.querySelectorAll('[data-ear-frequency]').forEach(control => { updateBinauralKnob(control); control.addEventListener('input', () => { updateBinauralKnob(control); send('resona:audio', { action:'setEarFrequency', ear:control.dataset.earFrequency, value:control.value }); }); });
@@ -126,7 +126,7 @@ PAGE_BRIDGE = r'''<script data-resona-bridge>
   document.querySelectorAll('[data-binaural-chord-transition]').forEach(control => control.addEventListener('input', () => { const output = control.parentElement.querySelector('output'); if (output) output.textContent = transitionLabel(control.value); send('resona:audio', { action:'setBinauralChordTransition', value:control.value }); }));
   document.querySelectorAll('[data-chord-range]').forEach(control => control.addEventListener('input', () => { const output = control.parentElement.querySelector('output'); if (output) output.textContent = control.value; }));
   document.querySelectorAll('[data-chord-continuous]').forEach(control => control.addEventListener('change', () => send('resona:audio', { action:'setContinuousChordMode', enabled:control.checked })));
-  document.querySelectorAll('[data-ambient-toggle]').forEach(button => button.addEventListener('click', () => send('resona:audio', { action:'toggleAmbient' })));
+  document.querySelectorAll('[data-ambient-toggle]:not([data-session-toggle])').forEach(button => button.addEventListener('click', () => send('resona:audio', { action:'toggleAmbient' })));
   document.querySelectorAll('[data-chord-generate]').forEach(button => button.addEventListener('click', () => {
     const card = button.closest('[data-chord-card]'), seed = card.querySelector('[data-chord-seed]').value.split(/[|,\s]+/).filter(Boolean);
     button.disabled = true; const status = card.querySelector('[data-chord-status]'); status.textContent = 'Loading your private model…';

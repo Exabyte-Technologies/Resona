@@ -14,7 +14,7 @@ if ! id "$deploy_user" >/dev/null 2>&1; then
   exit 1
 fi
 
-required_packages=(python3 python3-venv python3-pip nginx certbot rsync curl ca-certificates)
+required_packages=(python3 python3-venv python3-pip nginx certbot rsync curl ca-certificates redis-server)
 missing_packages=()
 for package in "${required_packages[@]}"; do
   if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed'; then
@@ -36,6 +36,7 @@ PY
 install -d -m 0755 -o "$deploy_user" -g "$deploy_user" "$app_dir"
 install -d -m 0750 -o "$deploy_user" -g www-data "$app_dir/instance" "$app_dir/instance/storage"
 install -d -m 0755 -o root -g root /var/www/certbot
+systemctl enable --now redis-server
 
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
   ufw allow 'Nginx Full'

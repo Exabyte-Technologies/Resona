@@ -156,6 +156,8 @@ def persistent_files():
 @player_bp.get("/")
 @login_required
 def index():
+    from .exabyte_oidc import external_identity
+
     ensure_chord_model_assets(g.user["username"])
     migrate_legacy_default_workspace(g.user["username"])
     nav_path = safe_path(g.user["username"], "nav.json")
@@ -170,7 +172,12 @@ def index():
         "SELECT email FROM email_verifications WHERE user_id = ? AND purpose = 'email_change' AND used_at IS NULL ORDER BY id DESC LIMIT 1",
         (g.user["id"],),
     ).fetchone()
-    return render_template("player/index.html", nav=nav, pending_email=pending["email"] if pending else None)
+    return render_template(
+        "player/index.html",
+        nav=nav,
+        pending_email=pending["email"] if pending else None,
+        external_identity=external_identity(g.user["id"]),
+    )
 
 
 @player_bp.get("/api/history")
