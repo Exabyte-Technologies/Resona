@@ -1,6 +1,6 @@
 {% if external_identity %}
 <div class="account-form">
-  <div class="account-status verified"><span>Managed by Exabyte Accounts</span><strong>{{ external_identity.email }}</strong><small>{{ external_identity.display_name }}</small>{% if external_identity.sync_warning %}<small class="identity-warning">{{ external_identity.sync_warning }}</small>{% endif %}</div>
+  <div class="account-status verified identity-profile">{% if external_identity.avatar_filename %}<img class="identity-avatar" src="{{ url_for('account.exabyte_avatar', v=external_identity.profile_revision) }}" alt="{{ external_identity.display_name or g.user.display_name }}">{% endif %}<div><span>Managed by Exabyte Accounts</span><strong>{{ external_identity.email }}</strong><small>{{ external_identity.display_name or g.user.display_name }}</small>{% if external_identity.locale or external_identity.zoneinfo %}<small>{{ external_identity.locale or 'Default locale' }}{% if external_identity.zoneinfo %} · {{ external_identity.zoneinfo }}{% endif %}</small>{% endif %}{% if external_identity.sync_warning %}<small class="identity-warning">{{ external_identity.sync_warning }}</small>{% endif %}</div></div>
   <p class="identity-note">Your verified name and email are synchronized from <a href="{{ external_identity.issuer }}" target="_blank" rel="noopener noreferrer">Exabyte Accounts</a>.</p>
 </div>
 {% if g.user.password_login_enabled %}

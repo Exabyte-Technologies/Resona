@@ -33,6 +33,7 @@ def create_app(test_config=None):
         EXABYTE_OIDC_ISSUER=os.getenv("EXABYTE_OIDC_ISSUER", "https://accounts.exabyte.org.cn").strip().rstrip("/"),
         EXABYTE_OIDC_CALLBACK_URL=os.getenv("EXABYTE_OIDC_CALLBACK_URL", "").strip(),
         EXABYTE_OIDC_SCOPES=os.getenv("EXABYTE_OIDC_SCOPES", "openid profile email").strip(),
+        EXABYTE_AVATAR_ROOT=str(Path(app.instance_path) / "exabyte_avatars"),
         REDIS_URL=os.getenv("REDIS_URL", "").strip(),
         AGENT_MAX_STEPS=int(os.getenv("AGENT_MAX_STEPS", "80")),
         CAPTCHA_CHALLENGE_COUNT=int(os.getenv("CAPTCHA_CHALLENGE_COUNT", "50")),
@@ -67,6 +68,7 @@ def create_app(test_config=None):
 
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     Path(app.config["STORAGE_ROOT"]).mkdir(parents=True, exist_ok=True)
+    Path(app.config["EXABYTE_AVATAR_ROOT"]).mkdir(parents=True, exist_ok=True)
     init_db_app(app)
 
     from .auth import auth_bp
@@ -77,9 +79,12 @@ def create_app(test_config=None):
     from .account import account_bp
     from .captcha import captcha_bp, init_captcha
     from .exabyte_oidc import exabyte_bp, init_exabyte_oidc
+    from .exabyte_webhook import webhook_bp
+    from .exabyte_maintenance import init_app as init_exabyte_maintenance
 
     init_captcha(app)
     init_exabyte_oidc(app)
+    init_exabyte_maintenance(app)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(player_bp)
@@ -88,6 +93,7 @@ def create_app(test_config=None):
     app.register_blueprint(account_bp)
     app.register_blueprint(captcha_bp)
     app.register_blueprint(exabyte_bp)
+    app.register_blueprint(webhook_bp)
 
     @app.get("/")
     def home():
@@ -96,6 +102,7 @@ def create_app(test_config=None):
     @app.before_request
     def load_user():
         from .db import get_db
+        from .exabyte_oidc import exabyte_access_allowed
 
         user_id = session.get("user_id")
         g.user = get_db().execute(
@@ -105,6 +112,7 @@ def create_app(test_config=None):
         if g.user and (
             session.get("session_version", 0) != g.user["session_version"]
             or (g.user["is_demo"] and not g.user["demo_enabled"])
+            or not exabyte_access_allowed(g.user["id"])
         ):
             session.clear()
             g.user = None

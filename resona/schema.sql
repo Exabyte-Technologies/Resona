@@ -23,10 +23,39 @@ CREATE TABLE IF NOT EXISTS external_identities (
     display_name TEXT NOT NULL,
     email_verified INTEGER NOT NULL DEFAULT 0,
     sync_warning TEXT,
+    preferred_username TEXT,
+    locale TEXT,
+    zoneinfo TEXT,
+    profile_revision INTEGER NOT NULL DEFAULT 0,
+    connection_status TEXT NOT NULL DEFAULT 'active',
+    account_status TEXT NOT NULL DEFAULT 'active',
+    avatar_filename TEXT,
+    avatar_mime_type TEXT,
+    purge_after TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(provider, subject),
     UNIQUE(provider, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS exabyte_webhook_events (
+    event_id TEXT PRIMARY KEY,
+    delivery_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    profile_revision INTEGER NOT NULL DEFAULT 0,
+    outcome TEXT NOT NULL,
+    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS exabyte_avatar_jobs (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    encrypted_url TEXT NOT NULL,
+    profile_revision INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS email_verifications (
@@ -109,3 +138,4 @@ INSERT OR IGNORE INTO settings(key, value) VALUES ('password_recovery_enabled', 
 INSERT OR IGNORE INTO settings(key, value) VALUES ('profile_editing_enabled', '1');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('exabyte_oidc_client_id', '');
 INSERT OR IGNORE INTO settings(key, value) VALUES ('exabyte_oidc_client_secret_encrypted', '');
+INSERT OR IGNORE INTO settings(key, value) VALUES ('exabyte_webhook_secret_encrypted', '');

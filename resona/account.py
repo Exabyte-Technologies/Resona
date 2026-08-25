@@ -1,6 +1,6 @@
 import re
 
-from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .captcha import validate_captcha
@@ -49,6 +49,23 @@ def settings():
     return render_template("account/settings.html", **_account_context())
 
 
+@account_bp.get("/exabyte-avatar")
+@login_required
+def exabyte_avatar():
+    from .exabyte_oidc import external_identity
+
+    identity = external_identity(g.user["id"])
+    if identity is None or not identity["avatar_filename"]:
+        abort(404)
+    filename = identity["avatar_filename"]
+    if not filename.startswith(f"{g.user['id']}.") or "/" in filename or "\\" in filename:
+        abort(404)
+    return send_from_directory(
+        current_app.config["EXABYTE_AVATAR_ROOT"], filename,
+        mimetype=identity["avatar_mime_type"], conditional=True, max_age=300,
+    )
+
+
 @account_bp.post("/")
 @login_required
 def update_settings():
@@ -68,7 +85,7 @@ def update_settings():
     user = db.execute("SELECT * FROM users WHERE id = ?", (g.user["id"],)).fetchone()
 
     identity = db.execute(
-        "SELECT * FROM external_identities WHERE provider = 'exabyte' AND user_id = ?", (user["id"],)
+        "SELECT * FROM external_identities WHERE provider = 'exabyte' AND user_id = ? AND connection_status = 'active'", (user["id"],)
     ).fetchone()
     if identity:
         if not user["password_login_enabled"]:

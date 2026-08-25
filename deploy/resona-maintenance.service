@@ -1,0 +1,17 @@
+[Unit]
+Description=Resona Exabyte synchronization maintenance
+After=network-online.target redis-server.service
+
+[Service]
+Type=oneshot
+User=resonahost
+Group=www-data
+WorkingDirectory=/opt/resona
+EnvironmentFile=/opt/resona/.env
+UMask=0007
+ExecStart=/opt/resona/.venv/bin/python -m flask --app run:app exabyte-maintenance
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/resona/instance

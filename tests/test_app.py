@@ -143,6 +143,9 @@ def test_production_deployment_preserves_instance_and_uses_expected_host():
     assert '"REDIS_URL": "redis://127.0.0.1:6379/1"' in rendered_env
     assert "redis-server" in (root / "deploy/bootstrap-ubuntu.sh").read_text()
     assert "redis-server.service" in service
+    assert "resona-maintenance.timer" in finalize
+    assert (root / "deploy/resona-maintenance.service").is_file()
+    assert (root / "deploy/resona-maintenance.timer").is_file()
 
 
 def test_registration_creates_isolated_default_workspace(app, registered):
@@ -554,12 +557,16 @@ def test_admin_stores_exabyte_credentials_encrypted_and_persists_them(app, clien
         "csrf_token": "admin-oidc-csrf",
         "client_id": "cli_admin_managed",
         "client_secret": "super-secret-oidc-value",
+        "webhook_secret": "separate-super-secret-webhook-value",
     })
     assert response.status_code == 302
     dashboard = client.get("/admin/")
     assert b"Exabyte sign-in ready" in dashboard.data
     assert b"cli_admin_managed" in dashboard.data
     assert b"super-secret-oidc-value" not in dashboard.data
+    assert b"separate-super-secret-webhook-value" not in dashboard.data
+    assert b"Synchronization ready" in dashboard.data
+    assert b"https://resona.neuorise.com/webhooks/exabyte" in dashboard.data
     with app.app_context():
         stored = get_db().execute(
             "SELECT value FROM settings WHERE key = 'exabyte_oidc_client_secret_encrypted'"
@@ -567,6 +574,7 @@ def test_admin_stores_exabyte_credentials_encrypted_and_persists_them(app, clien
         assert stored.startswith("fernet:v1:")
         assert "super-secret-oidc-value" not in stored
         assert get_exabyte_settings()["client_secret"] == "super-secret-oidc-value"
+        assert get_exabyte_settings()["webhook_secret"] == "separate-super-secret-webhook-value"
 
     restarted = create_app({
         "TESTING": True,
@@ -581,6 +589,7 @@ def test_admin_stores_exabyte_credentials_encrypted_and_persists_them(app, clien
         settings = get_exabyte_settings()
         assert settings["client_id"] == "cli_admin_managed"
         assert settings["client_secret"] == "super-secret-oidc-value"
+        assert settings["webhook_secret"] == "separate-super-secret-webhook-value"
         assert settings["configured"] is True
 
 
@@ -2573,3 +2582,300 @@ def test_exabyte_rejects_unverified_email_and_non_rs256_tokens(app, client, monk
     assert client.get("/auth/exabyte/callback?code=x&state=y").status_code == 302
     with app.app_context():
         assert get_db().execute("SELECT 1 FROM users WHERE username = 'unverified'").fetchone() is None
+
+
+def configure_exabyte_webhook(app, secret="webhook-signing-secret-for-tests"):
+    from resona.secret_store import encrypt_setting
+
+    configure_exabyte(app)
+    with app.app_context():
+        db = get_db()
+        db.execute(
+            "UPDATE settings SET value = ? WHERE key = 'exabyte_webhook_secret_encrypted'",
+            (encrypt_setting(secret),),
+        )
+        db.commit()
+    return secret
+
+
+def create_mapped_exabyte_user(app, subject="usr_webhook_listener", username="webhooklistener", is_admin=0):
+    from resona.user_storage import initialize_user_storage
+    from werkzeug.security import generate_password_hash
+
+    with app.app_context():
+        db = get_db()
+        user_id = db.execute(
+            "INSERT INTO users(username,email,display_name,email_verified_at,password_hash,password_login_enabled,is_admin) "
+            "VALUES (?,?,?,CURRENT_TIMESTAMP,?,1,?)",
+            (username, f"{username}@example.com", "Webhook Listener", generate_password_hash("local-password-123", method="pbkdf2:sha256:600000"), is_admin),
+        ).lastrowid
+        db.execute(
+            "INSERT INTO external_identities(user_id,provider,subject,issuer,email,display_name,email_verified) "
+            "VALUES (?,'exabyte',?,'https://accounts.exabyte.test',?,'Webhook Listener',1)",
+            (user_id, subject, f"{username}@example.com"),
+        )
+        db.commit()
+        initialize_user_storage(username)
+        return user_id
+
+
+def signed_exabyte_event(client, secret, event, timestamp=None, **header_overrides):
+    import hashlib
+    import hmac
+    import time
+
+    raw = json.dumps(event, separators=(",", ":"), sort_keys=True).encode()
+    timestamp = str(int(time.time()) if timestamp is None else timestamp)
+    signature = hmac.new(secret.encode(), timestamp.encode() + b"." + raw, hashlib.sha256).hexdigest()
+    headers = {
+        "Content-Type": "application/cloudevents+json",
+        "X-Exabyte-Delivery-Id": "dlv_test_delivery",
+        "X-Exabyte-Event-Id": event["id"],
+        "X-Exabyte-Timestamp": timestamp,
+        "X-Exabyte-Signature": f"v1={signature}",
+    }
+    headers.update(header_overrides)
+    return client.post("/webhooks/exabyte", data=raw, headers=headers)
+
+
+def profile_webhook_event(event_id="evt_profile_test", subject="usr_webhook_listener", revision=1, changes=None, event_type="user.profile.updated.v1"):
+    changes = changes or {"name": "Updated Listener"}
+    return {
+        "specversion": "1.0", "id": event_id, "source": "https://accounts.exabyte.test",
+        "type": event_type, "subject": subject, "time": "2026-08-25T02:14:19Z",
+        "datacontenttype": "application/json", "profile_revision": revision, "origin": "accounts",
+        "data": {"changed_fields": sorted(changes), "changes": changes},
+    }
+
+
+def lifecycle_webhook_event(event_id, event_type, subject="usr_webhook_listener", data=None):
+    return {
+        "specversion": "1.0", "id": event_id, "source": "https://accounts.exabyte.test",
+        "type": event_type, "subject": subject, "time": "2026-08-25T02:14:19Z",
+        "datacontenttype": "application/json", "profile_revision": 1, "origin": "accounts",
+        "data": data or {},
+    }
+
+
+def test_exabyte_webhook_authentication_test_event_and_duplicate(app, client):
+    import time
+
+    secret = configure_exabyte_webhook(app)
+    event = {
+        "specversion": "1.0", "id": "evt_test_receiver", "source": "https://accounts.exabyte.test",
+        "type": "product.integration.test.v1", "subject": "cli_resona_test",
+        "time": "2026-08-25T02:14:19Z", "datacontenttype": "application/json",
+        "data": {"message": "Exabyte Accounts webhook test"},
+    }
+    assert signed_exabyte_event(client, secret, event).status_code == 204
+    assert signed_exabyte_event(client, secret, event).status_code == 204
+    with app.app_context():
+        rows = get_db().execute("SELECT * FROM exabyte_webhook_events").fetchall()
+        assert len(rows) == 1 and rows[0]["outcome"] == "tested"
+
+    assert signed_exabyte_event(client, "wrong-webhook-secret-value", {**event, "id": "evt_bad_signature"}).status_code == 401
+    assert signed_exabyte_event(client, secret, {**event, "id": "evt_stale_timestamp"}, timestamp=int(time.time()) - 301).status_code == 401
+    assert signed_exabyte_event(client, secret, {**event, "id": "evt_wrong_source", "source": "https://evil.example"}).status_code == 400
+    assert signed_exabyte_event(client, secret, {**event, "id": "evt_header_mismatch"}, **{"X-Exabyte-Event-Id": "evt_different_header"}).status_code == 400
+    assert client.post("/webhooks/exabyte", data=b"{}", headers={"Content-Type": "application/json"}).status_code == 415
+    assert client.post(
+        "/webhooks/exabyte", data=b"x" * (256 * 1024 + 1),
+        headers={"Content-Type": "application/cloudevents+json"},
+    ).status_code == 413
+
+
+def test_exabyte_webhook_requires_configured_secret(app, client):
+    configure_exabyte(app)
+    event = profile_webhook_event("evt_no_webhook_secret")
+    assert signed_exabyte_event(client, "unused-secret-value", event).status_code == 503
+
+
+def test_exabyte_webhook_profile_sync_revision_gap_and_email_conflict(app, client):
+    from werkzeug.security import generate_password_hash
+
+    secret = configure_exabyte_webhook(app)
+    user_id = create_mapped_exabyte_user(app)
+    snapshot = profile_webhook_event(
+        "evt_profile_snapshot", revision=3, event_type="user.profile.snapshot.v1",
+        changes={
+            "name": "Synced Listener", "preferred_username": "centralname", "locale": "en-SG",
+            "zoneinfo": "Asia/Shanghai", "email": "fresh@example.com", "email_verified": True,
+        },
+    )
+    assert signed_exabyte_event(client, secret, snapshot).status_code == 204
+    with app.app_context():
+        user = get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        identity = get_db().execute("SELECT * FROM external_identities WHERE user_id = ?", (user_id,)).fetchone()
+        assert user["username"] == "webhooklistener"
+        assert user["display_name"] == "Synced Listener"
+        assert user["email"] == "fresh@example.com"
+        assert identity["preferred_username"] == "centralname"
+        assert identity["locale"] == "en-SG"
+        assert identity["zoneinfo"] == "Asia/Shanghai"
+        assert identity["profile_revision"] == 3
+        get_db().execute(
+            "INSERT INTO users(username,email,email_verified_at,password_hash) VALUES ('conflictowner','conflict@example.com',CURRENT_TIMESTAMP,?)",
+            (generate_password_hash("conflict-password", method="pbkdf2:sha256:600000"),),
+        )
+        get_db().commit()
+
+    gap = profile_webhook_event(
+        "evt_profile_gap", revision=5,
+        changes={"name": "Newest Name", "email": "conflict@example.com", "email_verified": True},
+    )
+    assert signed_exabyte_event(client, secret, gap).status_code == 204
+    older = profile_webhook_event("evt_profile_older", revision=4, changes={"name": "Older Name"})
+    assert signed_exabyte_event(client, secret, older).status_code == 204
+    with app.app_context():
+        user = get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        identity = get_db().execute("SELECT * FROM external_identities WHERE user_id = ?", (user_id,)).fetchone()
+        assert user["display_name"] == "Newest Name"
+        assert user["email"] == "fresh@example.com"
+        assert identity["email"] == "conflict@example.com"
+        assert "missed" in identity["sync_warning"] and "already used" in identity["sync_warning"]
+        assert identity["profile_revision"] == 5
+        assert get_db().execute("SELECT outcome FROM exabyte_webhook_events WHERE event_id = 'evt_profile_older'").fetchone()["outcome"] == "stale"
+
+    unverified = profile_webhook_event(
+        "evt_profile_unverified", revision=6,
+        changes={"email": "unverified@example.com", "email_verified": False},
+    )
+    assert signed_exabyte_event(client, secret, unverified).status_code == 204
+    with app.app_context():
+        user = get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        identity = get_db().execute("SELECT * FROM external_identities WHERE user_id = ?", (user_id,)).fetchone()
+        assert user["email"] == "fresh@example.com"
+        assert identity["email"] == "unverified@example.com"
+        assert identity["email_verified"] == 0
+        assert "not verified" in identity["sync_warning"]
+
+
+def test_exabyte_webhook_records_unknown_subject_without_provisioning(app, client):
+    secret = configure_exabyte_webhook(app)
+    event = profile_webhook_event("evt_unknown_subject", subject="usr_unknown_subject", revision=7)
+    assert signed_exabyte_event(client, secret, event).status_code == 204
+    with app.app_context():
+        assert get_db().execute("SELECT outcome FROM exabyte_webhook_events WHERE event_id = ?", (event["id"],)).fetchone()["outcome"] == "unmatched"
+        assert get_db().execute("SELECT 1 FROM external_identities WHERE subject = 'usr_unknown_subject'").fetchone() is None
+
+
+def test_exabyte_avatar_job_download_and_authenticated_serving(app, client, monkeypatch):
+    from resona.exabyte_maintenance import process_avatar_jobs
+
+    secret = configure_exabyte_webhook(app)
+    user_id = create_mapped_exabyte_user(app)
+    picture_url = "https://accounts.exabyte.test/api/v1/profile-events/avatar/short-lived-token"
+    event = profile_webhook_event("evt_avatar_update", revision=2, changes={"picture": picture_url})
+    assert signed_exabyte_event(client, secret, event).status_code == 204
+    with app.app_context():
+        job = get_db().execute("SELECT * FROM exabyte_avatar_jobs WHERE user_id = ?", (user_id,)).fetchone()
+        assert job and picture_url not in job["encrypted_url"]
+
+    class AvatarResponse:
+        headers = {"Content-Type": "image/png", "Content-Length": "16"}
+        def raise_for_status(self): pass
+        def iter_content(self, _size): return iter([b"\x89PNG\r\n\x1a\nresona"])
+        def close(self): pass
+
+    monkeypatch.setattr("resona.exabyte_maintenance.requests.get", lambda *args, **kwargs: AvatarResponse())
+    with app.app_context():
+        assert process_avatar_jobs() == 1
+        identity = get_db().execute("SELECT * FROM external_identities WHERE user_id = ?", (user_id,)).fetchone()
+        assert identity["avatar_filename"] == f"{user_id}.png"
+    with client.session_transaction() as session:
+        session["user_id"] = user_id
+        session["session_version"] = 0
+        session["csrf_token"] = "avatar-test-csrf"
+    response = client.get("/account/exabyte-avatar")
+    assert response.status_code == 200
+    assert response.mimetype == "image/png"
+    page = client.get("/player/")
+    assert b"account-button-avatar" in page.data
+    assert picture_url.encode() not in page.data
+
+
+def test_exabyte_avatar_rejects_non_accounts_source_without_requesting_it(app, client, monkeypatch):
+    from resona.exabyte_maintenance import process_avatar_jobs
+
+    secret = configure_exabyte_webhook(app)
+    user_id = create_mapped_exabyte_user(app)
+    event = profile_webhook_event(
+        "evt_avatar_bad_origin", revision=2,
+        changes={"picture": "https://evil.example/api/v1/profile-events/avatar/token"},
+    )
+    assert signed_exabyte_event(client, secret, event).status_code == 204
+    monkeypatch.setattr(
+        "resona.exabyte_maintenance.requests.get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("untrusted URL requested")),
+    )
+    with app.app_context():
+        assert process_avatar_jobs() == 0
+        job = get_db().execute("SELECT * FROM exabyte_avatar_jobs WHERE user_id = ?", (user_id,)).fetchone()
+        assert job["attempts"] == 1
+
+
+def test_exabyte_lifecycle_blocks_restores_disconnects_and_revokes_sessions(app, client):
+    from resona.exabyte_oidc import exabyte_access_allowed, external_identity
+
+    secret = configure_exabyte_webhook(app)
+    user_id = create_mapped_exabyte_user(app)
+    suspended = lifecycle_webhook_event(
+        "evt_status_suspended", "user.account.status_changed.v1", data={"status": "suspended"},
+    )
+    assert signed_exabyte_event(client, secret, suspended).status_code == 204
+    with app.app_context():
+        assert exabyte_access_allowed(user_id) is False
+        version = get_db().execute("SELECT session_version FROM users WHERE id = ?", (user_id,)).fetchone()["session_version"]
+        assert version == 1
+
+    active = lifecycle_webhook_event("evt_status_active", "user.account.status_changed.v1", data={"status": "active"})
+    assert signed_exabyte_event(client, secret, active).status_code == 204
+    revoked = lifecycle_webhook_event("evt_sessions_revoked", "user.sessions.revoked.v1")
+    assert signed_exabyte_event(client, secret, revoked).status_code == 204
+    disconnected = lifecycle_webhook_event("evt_connection_revoked", "user.connection.revoked.v1")
+    assert signed_exabyte_event(client, secret, disconnected).status_code == 204
+    with app.app_context():
+        assert exabyte_access_allowed(user_id) is True
+        assert external_identity(user_id) is None
+        assert external_identity(user_id, include_disconnected=True)["connection_status"] == "revoked"
+        assert get_db().execute("SELECT session_version FROM users WHERE id = ?", (user_id,)).fetchone()["session_version"] == 3
+        from resona.exabyte_oidc import _update_identity
+        _update_identity(external_identity(user_id, include_disconnected=True), {
+            "email": "webhooklistener@example.com", "display_name": "Reconnected Listener",
+            "preferred_username": "webhooklistener", "locale": "en-SG", "zoneinfo": "Asia/Shanghai",
+        })
+        assert external_identity(user_id)["connection_status"] == "active"
+
+
+def test_exabyte_anonymized_account_purges_after_seven_days_but_final_admin_is_retained(app, client):
+    from resona.exabyte_maintenance import purge_anonymized_accounts
+    from resona.user_storage import user_root
+
+    secret = configure_exabyte_webhook(app)
+    user_id = create_mapped_exabyte_user(app, subject="usr_purge_listener", username="purgelistener")
+    event = lifecycle_webhook_event(
+        "evt_status_anonymized", "user.account.status_changed.v1", subject="usr_purge_listener", data={"status": "anonymized"},
+    )
+    assert signed_exabyte_event(client, secret, event).status_code == 204
+    with app.app_context():
+        identity = get_db().execute("SELECT * FROM external_identities WHERE user_id = ?", (user_id,)).fetchone()
+        assert identity["purge_after"]
+        get_db().execute("UPDATE external_identities SET purge_after = '2000-01-01T00:00:00+00:00' WHERE user_id = ?", (user_id,))
+        get_db().commit()
+        assert purge_anonymized_accounts() == 1
+        assert get_db().execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is None
+        assert not user_root("purgelistener").exists()
+
+    admin_id = create_mapped_exabyte_user(app, subject="usr_final_admin", username="finaladmin", is_admin=1)
+    admin_event = lifecycle_webhook_event(
+        "evt_admin_anonymized", "user.account.status_changed.v1", subject="usr_final_admin", data={"status": "anonymized"},
+    )
+    assert signed_exabyte_event(client, secret, admin_event).status_code == 204
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE external_identities SET purge_after = '2000-01-01T00:00:00+00:00' WHERE user_id = ?", (admin_id,))
+        db.commit()
+        assert purge_anonymized_accounts() == 0
+        assert db.execute("SELECT 1 FROM users WHERE id = ?", (admin_id,)).fetchone()
+        warning = db.execute("SELECT sync_warning FROM external_identities WHERE user_id = ?", (admin_id,)).fetchone()["sync_warning"]
+        assert "final Resona administrator" in warning

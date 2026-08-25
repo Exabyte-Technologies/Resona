@@ -28,7 +28,7 @@ fi
 
 install -m 0600 -o "$deploy_user" -g "$deploy_user" "$uploaded_env" "$app_dir/.env"
 rm -f "$uploaded_env"
-install -d -m 0750 -o "$deploy_user" -g www-data "$app_dir/instance" "$app_dir/instance/storage"
+install -d -m 0750 -o "$deploy_user" -g www-data "$app_dir/instance" "$app_dir/instance/storage" "$app_dir/instance/exabyte_avatars"
 
 if systemctl is-active --quiet resona; then
   systemctl stop resona
@@ -54,6 +54,8 @@ sudo -u "$deploy_user" "$app_dir/.venv/bin/python" -m pip install --requirement 
 sudo -u "$deploy_user" "$app_dir/.venv/bin/python" -m pip check
 
 install -m 0644 "$app_dir/deploy/resona.service" /etc/systemd/system/resona.service
+install -m 0644 "$app_dir/deploy/resona-maintenance.service" /etc/systemd/system/resona-maintenance.service
+install -m 0644 "$app_dir/deploy/resona-maintenance.timer" /etc/systemd/system/resona-maintenance.timer
 install -m 0644 "$app_dir/deploy/resona-http.nginx" /etc/nginx/sites-available/resona
 ln -sfn /etc/nginx/sites-available/resona /etc/nginx/sites-enabled/resona
 rm -f /etc/nginx/sites-enabled/default
@@ -76,10 +78,11 @@ install -m 0755 "$app_dir/deploy/certbot-reload-nginx.sh" /etc/letsencrypt/renew
 install -m 0644 "$app_dir/deploy/resona.nginx" /etc/nginx/sites-available/resona
 nginx -t
 systemctl daemon-reload
-systemctl enable nginx redis-server resona certbot.timer
+systemctl enable nginx redis-server resona resona-maintenance.timer certbot.timer
 systemctl restart redis-server
 systemctl start certbot.timer
 systemctl restart resona
+systemctl restart resona-maintenance.timer
 systemctl restart nginx
 
 for attempt in {1..30}; do

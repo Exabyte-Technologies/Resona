@@ -57,6 +57,21 @@ def init_db():
         db.execute("ALTER TABLE agent_runs ADD COLUMN client_request_id TEXT")
     if existing_agent_columns and "steps" not in existing_agent_columns:
         db.execute("ALTER TABLE agent_runs ADD COLUMN steps INTEGER")
+    identity_columns = {row["name"] for row in db.execute("PRAGMA table_info(external_identities)").fetchall()}
+    identity_migrations = {
+        "preferred_username": "TEXT",
+        "locale": "TEXT",
+        "zoneinfo": "TEXT",
+        "profile_revision": "INTEGER NOT NULL DEFAULT 0",
+        "connection_status": "TEXT NOT NULL DEFAULT 'active'",
+        "account_status": "TEXT NOT NULL DEFAULT 'active'",
+        "avatar_filename": "TEXT",
+        "avatar_mime_type": "TEXT",
+        "purge_after": "TEXT",
+    }
+    for name, definition in identity_migrations.items():
+        if name not in identity_columns:
+            db.execute(f"ALTER TABLE external_identities ADD COLUMN {name} {definition}")
     db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS agent_runs_user_request_id "
         "ON agent_runs(user_id, client_request_id) WHERE client_request_id IS NOT NULL"

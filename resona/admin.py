@@ -23,7 +23,8 @@ def login():
         require_csrf()
         identity = request.form.get("identity", "").strip().lower()
         user = get_db().execute("SELECT * FROM users WHERE (username = ? OR email = ?) AND is_admin = 1", (identity, identity)).fetchone()
-        if user and check_password_hash(user["password_hash"], request.form.get("password", "")):
+        from .exabyte_oidc import exabyte_access_allowed
+        if user and exabyte_access_allowed(user["id"]) and check_password_hash(user["password_hash"], request.form.get("password", "")):
             session.clear()
             session["user_id"] = user["id"]
             import secrets
@@ -38,7 +39,12 @@ def login():
 @admin_required
 def dashboard():
     db = get_db()
-    users = [dict(row) for row in db.execute("SELECT users.*, EXISTS(SELECT 1 FROM external_identities WHERE external_identities.user_id = users.id AND provider = 'exabyte') AS has_exabyte FROM users ORDER BY id DESC").fetchall()]
+    users = [dict(row) for row in db.execute(
+        "SELECT users.*, EXISTS(SELECT 1 FROM external_identities WHERE external_identities.user_id = users.id AND provider = 'exabyte') AS has_exabyte, "
+        "COALESCE((SELECT account_status FROM external_identities WHERE external_identities.user_id = users.id AND provider = 'exabyte'), '') AS exabyte_status, "
+        "(SELECT purge_after FROM external_identities WHERE external_identities.user_id = users.id AND provider = 'exabyte') AS exabyte_purge_after "
+        "FROM users ORDER BY id DESC"
+    ).fetchall()]
     for user in users:
         user["storage_used"] = usage_bytes(user["username"])
     skills = db.execute("SELECT skills.*, users.username FROM skills LEFT JOIN users ON users.id = skills.user_id ORDER BY skills.id DESC").fetchall()
@@ -66,6 +72,8 @@ def dashboard():
         "ready": exabyte_is_configured(),
         "issuer": exabyte_settings["issuer"],
         "callback_url": exabyte_settings["callback_url"],
+        "webhook_endpoint": "https://resona.neuorise.com/webhooks/exabyte",
+        "webhook_secret_configured": bool(exabyte_settings["webhook_secret"]),
     }
     demo = dict(db.execute("SELECT id, username, demo_enabled, session_version FROM users WHERE is_demo = 1").fetchone())
     user_controls = get_user_controls()
@@ -368,6 +376,8 @@ def update_exabyte_oidc():
     disable = request.form.get("disable_exabyte_oidc") == "1"
     client_id = request.form.get("client_id", "").strip()
     client_secret = request.form.get("client_secret", "").strip()
+    webhook_secret = request.form.get("webhook_secret", "").strip()
+    clear_webhook_secret = request.form.get("clear_webhook_secret") == "1"
     current = get_exabyte_settings()
     if disable:
         client_id = ""
@@ -404,8 +414,18 @@ def update_exabyte_oidc():
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
         (encrypted_secret,),
     )
+    if webhook_secret or clear_webhook_secret:
+        if webhook_secret and (not 20 <= len(webhook_secret) <= 500 or any(ord(character) < 32 for character in webhook_secret)):
+            db.rollback()
+            flash("Enter a valid Exabyte webhook signing secret.", "error")
+            return redirect(url_for("admin.dashboard"))
+        db.execute(
+            "INSERT INTO settings(key, value) VALUES ('exabyte_webhook_secret_encrypted', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+            (encrypt_setting(webhook_secret) if webhook_secret else "",),
+        )
     db.commit()
-    flash("Exabyte sign-in was disabled." if disable else "Exabyte OIDC credentials were saved securely.", "success")
+    flash("Exabyte sign-in was disabled." if disable else "Exabyte OIDC and synchronization settings were saved securely.", "success")
     return redirect(url_for("admin.dashboard"))
 
 

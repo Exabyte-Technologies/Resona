@@ -82,7 +82,8 @@ def login():
         user = get_db().execute(
             "SELECT * FROM users WHERE username = ? OR email = ?", (identity, identity)
         ).fetchone()
-        if user and user["password_login_enabled"] and (not user["is_demo"] or user["demo_enabled"]) and check_password_hash(user["password_hash"], request.form.get("password", "")):
+        from .exabyte_oidc import exabyte_access_allowed
+        if user and user["password_login_enabled"] and exabyte_access_allowed(user["id"]) and (not user["is_demo"] or user["demo_enabled"]) and check_password_hash(user["password_hash"], request.form.get("password", "")):
             if not user["is_demo"] and not user["email_verified_at"]:
                 session["pending_verification_user_id"] = user["id"]
                 return render_template(

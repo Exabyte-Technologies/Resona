@@ -37,15 +37,22 @@ def _setting(key):
 def get_exabyte_settings():
     client_id = _setting("exabyte_oidc_client_id")
     encrypted_secret = _setting("exabyte_oidc_client_secret_encrypted")
+    encrypted_webhook_secret = _setting("exabyte_webhook_secret_encrypted")
     try:
         client_secret = decrypt_setting(encrypted_secret)
     except (InvalidToken, ValueError, UnicodeError):
         current_app.logger.error("The saved Exabyte client secret could not be decrypted")
         client_secret = ""
+    try:
+        webhook_secret = decrypt_setting(encrypted_webhook_secret)
+    except (InvalidToken, ValueError, UnicodeError):
+        current_app.logger.error("The saved Exabyte webhook secret could not be decrypted")
+        webhook_secret = ""
     return {
         "issuer": current_app.config.get("EXABYTE_OIDC_ISSUER", "").strip().rstrip("/"),
         "client_id": client_id,
         "client_secret": client_secret,
+        "webhook_secret": webhook_secret,
         "callback_url": current_app.config.get("EXABYTE_OIDC_CALLBACK_URL", "").strip(),
         "scopes": current_app.config.get("EXABYTE_OIDC_SCOPES", "").strip(),
         "configured": bool(client_id and client_secret),
@@ -88,11 +95,17 @@ def _register_client(settings):
     )
 
 
-def external_identity(user_id):
+def external_identity(user_id, include_disconnected=False):
+    suffix = "" if include_disconnected else " AND connection_status = 'active'"
     return get_db().execute(
-        "SELECT * FROM external_identities WHERE provider = ? AND user_id = ?",
+        f"SELECT * FROM external_identities WHERE provider = ? AND user_id = ?{suffix}",
         (PROVIDER, user_id),
     ).fetchone()
+
+
+def exabyte_access_allowed(user_id):
+    identity = external_identity(user_id, include_disconnected=True)
+    return identity is None or identity["account_status"] == "active"
 
 
 def safe_local_path(value):
@@ -182,6 +195,8 @@ def _claims(value):
         "email": email,
         "display_name": display_name or "Exabyte user",
         "preferred_username": preferred_username,
+        "locale": str(value.get("locale") or "").strip()[:40] or None,
+        "zoneinfo": str(value.get("zoneinfo") or "").strip()[:80] or None,
     }
 
 
@@ -199,6 +214,8 @@ def _available_username(preferred_username, subject):
 
 
 def _update_identity(identity, claims):
+    if identity["account_status"] == "anonymized":
+        raise PermissionError("This Exabyte-linked account has been permanently anonymized.")
     db = get_db()
     owner = db.execute(
         "SELECT id FROM users WHERE email = ? AND id != ?", (claims["email"], identity["user_id"])
@@ -216,8 +233,9 @@ def _update_identity(identity, claims):
             (claims["display_name"], claims["email"], identity["user_id"]),
         )
     db.execute(
-        "UPDATE external_identities SET email = ?, display_name = ?, email_verified = 1, sync_warning = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (claims["email"], claims["display_name"], warning, identity["id"]),
+        "UPDATE external_identities SET email = ?, display_name = ?, email_verified = 1, preferred_username = ?, locale = ?, zoneinfo = ?, "
+        "connection_status = 'active', account_status = 'active', purge_after = NULL, sync_warning = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (claims["email"], claims["display_name"], claims["preferred_username"], claims["locale"], claims["zoneinfo"], warning, identity["id"]),
     )
     db.commit()
     return identity["user_id"], warning
@@ -238,8 +256,9 @@ def _provision_user(claims):
             (username, claims["email"], claims["display_name"], password_hash),
         )
         db.execute(
-            "INSERT INTO external_identities(user_id, provider, subject, issuer, email, display_name, email_verified) VALUES (?, ?, ?, ?, ?, ?, 1)",
-            (cursor.lastrowid, PROVIDER, claims["subject"], current_app.config["EXABYTE_OIDC_ISSUER"], claims["email"], claims["display_name"]),
+            "INSERT INTO external_identities(user_id, provider, subject, issuer, email, display_name, email_verified, preferred_username, locale, zoneinfo) "
+            "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
+            (cursor.lastrowid, PROVIDER, claims["subject"], current_app.config["EXABYTE_OIDC_ISSUER"], claims["email"], claims["display_name"], claims["preferred_username"], claims["locale"], claims["zoneinfo"]),
         )
         initialize_user_storage(username)
         workspace_created = True
@@ -262,14 +281,18 @@ def _link_user(user_id, claims):
     ).fetchone()
     if existing_subject and existing_subject["user_id"] != user_id:
         raise FileExistsError("This Exabyte identity is already linked to another Resona account.")
-    if external_identity(user_id):
-        raise FileExistsError("This Resona account is already linked to Exabyte.")
+    existing_identity = external_identity(user_id, include_disconnected=True)
+    if existing_identity:
+        if existing_identity["subject"] != claims["subject"]:
+            raise FileExistsError("This Resona account is already mapped to another Exabyte identity.")
+        return _update_identity(existing_identity, claims)
     email_owner = db.execute("SELECT id FROM users WHERE email = ? AND id != ?", (claims["email"], user_id)).fetchone()
     if email_owner:
         raise FileExistsError("That Exabyte email belongs to another Resona account, so linking was not completed.")
     db.execute(
-        "INSERT INTO external_identities(user_id, provider, subject, issuer, email, display_name, email_verified) VALUES (?, ?, ?, ?, ?, ?, 1)",
-        (user_id, PROVIDER, claims["subject"], current_app.config["EXABYTE_OIDC_ISSUER"], claims["email"], claims["display_name"]),
+        "INSERT INTO external_identities(user_id, provider, subject, issuer, email, display_name, email_verified, preferred_username, locale, zoneinfo) "
+        "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
+        (user_id, PROVIDER, claims["subject"], current_app.config["EXABYTE_OIDC_ISSUER"], claims["email"], claims["display_name"], claims["preferred_username"], claims["locale"], claims["zoneinfo"]),
     )
     db.execute(
         "UPDATE users SET display_name = ?, email = ?, email_verified_at = CURRENT_TIMESTAMP WHERE id = ?",
