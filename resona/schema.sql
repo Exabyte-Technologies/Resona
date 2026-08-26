@@ -74,6 +74,17 @@ CREATE TABLE IF NOT EXISTS captcha_redemptions (
     used_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS legal_acceptances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    terms_version TEXT NOT NULL,
+    privacy_version TEXT NOT NULL,
+    context TEXT NOT NULL CHECK(context IN ('registration', 'exabyte_registration')),
+    accepted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS legal_acceptances_user_id ON legal_acceptances(user_id);
+
 CREATE TABLE IF NOT EXISTS password_resets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

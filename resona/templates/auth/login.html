@@ -15,13 +15,14 @@
       {% if sign_in_disabled %}
       <div class="sign-in-disabled" role="status"><strong>Sign-in is unavailable</strong><p>User sign-in has been temporarily disabled. Please try again later.</p></div>
       {% else %}
-      <label>Username or email<input name="identity" autocomplete="username" required autofocus></label>
+      <label>Username or email<input name="identity" value="{{ identity|default('') }}" autocomplete="username" required autofocus></label>
       <label>Password<input type="password" name="password" autocomplete="current-password"><small>The public Demo account uses a blank password by default.</small></label>
       <div class="captcha-field"><span>Security check</span><cap-widget data-cap-api-endpoint="{{ url_for('captcha.challenge')|replace('challenge', '') }}" data-cap-hidden-field-name="cap-token" required></cap-widget></div>
+      <div class="demo-legal-consent" id="demo-legal-consent"{% if not demo_consent_required %} hidden{% endif %}><strong>Shared Demo agreement</strong><p>The Demo does not create a personal account. You must agree each time you enter it.</p><label class="check-label"><input type="checkbox" name="accept_terms" value="1"{% if not demo_consent_required %} disabled{% endif %}><span>I agree to the <a href="{{ url_for('legal.terms') }}" target="_blank" rel="noopener">Terms of Service</a>.</span></label><label class="check-label"><input type="checkbox" name="accept_privacy" value="1"{% if not demo_consent_required %} disabled{% endif %}><span>I acknowledge the <a href="{{ url_for('legal.privacy') }}" target="_blank" rel="noopener">Privacy Policy</a>.</span></label></div>
       <button class="primary" type="submit">Enter Resona <span>→</span></button>
       {% if exabyte_configured %}<div class="auth-divider"><span>or</span></div><a class="exabyte-sign-in" href="{{ url_for('exabyte.login', next=request.args.get('next', '')) }}" data-loading-text="Connecting…"><img src="{{ url_for('static', filename='images/exabyte.png') }}" alt="" width="28" height="28" aria-hidden="true"><span>Sign in with Exabyte</span></a>{% endif %}
       {% endif %}
-      <div class="form-links">{% if user_controls.password_recovery %}<a href="{{ url_for('auth.forgot') }}">Forgot password?</a>{% endif %}{% if user_controls.registration %}<span>New here? <a href="{{ url_for('auth.register') }}">Create an account</a></span>{% endif %}</div>
+      <div class="form-links">{% if user_controls.password_recovery %}<a href="{{ url_for('auth.forgot') }}">Forgot password?</a>{% endif %}{% if user_controls.registration %}<span>New here? <a href="{{ url_for('auth.register') }}">Create an account</a></span>{% endif %}<span><a href="{{ url_for('legal.terms') }}">Terms</a> · <a href="{{ url_for('legal.privacy') }}">Privacy</a></span></div>
       <p class="project-credit">Made by Jingwen Hu and Fuhang Fu · Open source on <a href="https://github.com/Exabyte-Technologies/Resona" target="_blank" rel="noopener noreferrer">GitHub</a></p>
     </form>
   </section>
@@ -38,5 +39,5 @@
   </form>
 </section>
 {% endif %}
-{% if exabyte_configured and not sign_in_disabled %}<script src="{{ url_for('static', filename='js/exabyte-login.js') }}"></script>{% endif %}
+{% if not sign_in_disabled %}<script src="{{ url_for('static', filename='js/demo-consent.js') }}"></script>{% endif %}{% if exabyte_configured and not sign_in_disabled %}<script src="{{ url_for('static', filename='js/exabyte-login.js') }}"></script>{% endif %}
 {% endblock %}

@@ -58,6 +58,8 @@ def registered(client, captcha):
         "username": "listener",
         "email": "listener@example.com",
         "password": "healing-sound-123",
+        "accept_terms": "1",
+        "accept_privacy": "1",
     })
     assert response.status_code == 302
     with client.session_transaction() as session:

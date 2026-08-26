@@ -81,6 +81,7 @@ def create_app(test_config=None):
     from .exabyte_oidc import exabyte_bp, init_exabyte_oidc
     from .exabyte_webhook import webhook_bp
     from .exabyte_maintenance import init_app as init_exabyte_maintenance
+    from .legal import legal_bp
 
     init_captcha(app)
     init_exabyte_oidc(app)
@@ -94,6 +95,7 @@ def create_app(test_config=None):
     app.register_blueprint(captcha_bp)
     app.register_blueprint(exabyte_bp)
     app.register_blueprint(webhook_bp)
+    app.register_blueprint(legal_bp)
 
     @app.get("/")
     def home():

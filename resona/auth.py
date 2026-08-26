@@ -12,6 +12,7 @@ from .resend import resend_is_configured, send_password_reset_email, send_welcom
 from .security import USERNAME_RE, login_required, require_csrf
 from .user_controls import user_control_enabled
 from .user_storage import initialize_user_storage
+from .legal import consent_submitted, record_legal_acceptance
 
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -43,6 +44,8 @@ def register():
             error = "Enter a valid email address."
         elif len(password) < 10:
             error = "Use at least 10 characters for your password."
+        elif not consent_submitted(request.form):
+            error = "You must agree to the Terms of Service and acknowledge the Privacy Policy to create an account."
         if error is None:
             db = get_db()
             try:
@@ -50,6 +53,7 @@ def register():
                     "INSERT INTO users(username, email, display_name, password_hash) VALUES (?, ?, ?, ?)",
                     (username, email, display_name, generate_password_hash(password, method="pbkdf2:sha256:600000")),
                 )
+                record_legal_acceptance(cursor.lastrowid, "registration")
                 verification_token = issue_email_verification(cursor.lastrowid, display_name, email, "registration")
                 db.commit()
                 initialize_user_storage(username)
@@ -84,6 +88,13 @@ def login():
         ).fetchone()
         from .exabyte_oidc import exabyte_access_allowed
         if user and user["password_login_enabled"] and exabyte_access_allowed(user["id"]) and (not user["is_demo"] or user["demo_enabled"]) and check_password_hash(user["password_hash"], request.form.get("password", "")):
+            if user["is_demo"] and not consent_submitted(request.form):
+                flash("Agree to the Terms of Service and acknowledge the Privacy Policy before entering the shared Demo.", "error")
+                return render_template(
+                    "auth/login.html",
+                    identity=identity,
+                    demo_consent_required=True,
+                ), 400
             if not user["is_demo"] and not user["email_verified_at"]:
                 session["pending_verification_user_id"] = user["id"]
                 return render_template(
@@ -100,7 +111,7 @@ def login():
                 destination = url_for("player.index")
             return redirect(destination)
         flash("The username or password doesn't match.", "error")
-    return render_template("auth/login.html")
+    return render_template("auth/login.html", identity=request.form.get("identity", ""))
 
 
 @auth_bp.post("/resend-verification")

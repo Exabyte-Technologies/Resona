@@ -235,6 +235,8 @@ def test_registration_requires_email_verification_before_login_and_exposes_serve
         "username": "unverified",
         "email": "unverified@example.com",
         "password": "healing-sound-123",
+        "accept_terms": "1",
+        "accept_privacy": "1",
     })
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/auth/login")
@@ -245,6 +247,14 @@ def test_registration_requires_email_verification_before_login_and_exposes_serve
         user = get_db().execute("SELECT display_name, email_verified_at FROM users WHERE username = 'unverified'").fetchone()
         assert user["display_name"] == "Unverified Listener"
         assert user["email_verified_at"] is None
+        acceptance = get_db().execute(
+            "SELECT terms_version, privacy_version, context FROM legal_acceptances WHERE user_id = (SELECT id FROM users WHERE username = 'unverified')"
+        ).fetchone()
+        assert dict(acceptance) == {
+            "terms_version": "2026-08-26",
+            "privacy_version": "2026-08-26",
+            "context": "registration",
+        }
 
     client.get("/auth/login")
     denied = client.post("/auth/login", data={
@@ -274,6 +284,33 @@ def test_registration_requires_email_verification_before_login_and_exposes_serve
     assert b"cannot be changed by Resona AI" in player.data
 
 
+def test_public_legal_pages_and_registration_consent_are_required(app, client, captcha):
+    terms = client.get("/terms")
+    privacy = client.get("/privacy")
+    assert terms.status_code == 200
+    assert b"Terms of Service" in terms.data
+    assert b"not a medical device" in terms.data
+    assert privacy.status_code == 200
+    assert b"Privacy Policy" in privacy.data
+    assert b"does not sell personal information" in privacy.data
+
+    registration = client.get("/auth/register")
+    assert b'name="accept_terms"' in registration.data
+    assert b'name="accept_privacy"' in registration.data
+    response = client.post("/auth/register", data={
+        "csrf_token": session_csrf(client),
+        "cap-token": captcha(),
+        "display_name": "No Agreement",
+        "username": "no_agreement",
+        "email": "no-agreement@example.com",
+        "password": "healing-sound-123",
+    })
+    assert response.status_code == 200
+    assert b"must agree to the Terms of Service" in response.data
+    with app.app_context():
+        assert get_db().execute("SELECT 1 FROM users WHERE username = 'no_agreement'").fetchone() is None
+
+
 def test_login_verification_resend_is_limited_to_once_per_minute(app, client, captcha):
     client.get("/auth/register")
     client.post("/auth/register", data={
@@ -283,6 +320,8 @@ def test_login_verification_resend_is_limited_to_once_per_minute(app, client, ca
         "username": "cooldown_listener",
         "email": "cooldown@example.com",
         "password": "healing-sound-123",
+        "accept_terms": "1",
+        "accept_privacy": "1",
     })
     with client.session_transaction() as session:
         first_token = session["testing_verification_token"]
@@ -480,6 +519,8 @@ def test_resend_sends_registration_and_password_reset_emails_without_exposing_se
         "username": "emailuser",
         "email": "emailuser@example.com",
         "password": "healing-sound-123",
+        "accept_terms": "1",
+        "accept_privacy": "1",
     })
     assert response.status_code == 302
     assert captured[0]["url"] == "https://api.resend.com/emails"
@@ -612,6 +653,8 @@ def test_resend_delivery_failure_blocks_unverifiable_registration(app, client, c
         "username": "mailfailure",
         "email": "mailfailure@example.com",
         "password": "healing-sound-123",
+        "accept_terms": "1",
+        "accept_privacy": "1",
     })
     assert response.status_code == 200
     assert b"Email verification is temporarily unavailable" in response.data
@@ -2153,11 +2196,25 @@ def test_demo_account_is_built_in_and_blank_password_opens_protected_demo(app, c
         assert "three deterministic requests" in safe_path("demo", "memory/notes.md").read_text()
 
     client.get("/auth/login")
+    denied = client.post("/auth/login", data={
+        "csrf_token": session_csrf(client),
+        "cap-token": captcha(),
+        "identity": "Demo",
+        "password": "",
+    })
+    assert denied.status_code == 400
+    assert b"Shared Demo agreement" in denied.data
+    assert b"Agree to the Terms of Service" in denied.data
+    assert client.get("/player/").headers["Location"].startswith("/auth/login")
+
+    client.get("/auth/login")
     response = client.post("/auth/login", data={
         "csrf_token": session_csrf(client),
         "cap-token": captcha(),
         "identity": "Demo",
         "password": "",
+        "accept_terms": "1",
+        "accept_privacy": "1",
     })
     assert response.status_code == 302
     player = client.get("/player/")
@@ -2198,6 +2255,7 @@ def test_demo_agent_installs_three_reviewed_pages_without_provider_calls(app, cl
     client.get("/auth/login")
     assert client.post("/auth/login", data={
         "csrf_token": session_csrf(client), "cap-token": captcha(), "identity": "demo", "password": "",
+        "accept_terms": "1", "accept_privacy": "1",
     }).status_code == 302
     csrf_token = session_csrf(client)
     prompts = [
