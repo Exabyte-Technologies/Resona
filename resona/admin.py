@@ -1,7 +1,7 @@
 import sqlite3
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, session, url_for
-from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.security import generate_password_hash
 
 from .closeai import get_provider_settings, validate_base_url
 from .db import get_db
@@ -9,12 +9,23 @@ from .demo import DEMO_USERNAME, reset_demo_workspace
 from .exabyte_oidc import exabyte_is_configured, get_exabyte_settings
 from .resend import get_resend_settings
 from .secret_store import encrypt_setting
-from .security import USERNAME_RE, admin_required, require_csrf
+from .security import (
+    USERNAME_RE,
+    admin_required,
+    client_scope,
+    constant_time_password_check,
+    rate_limited,
+    require_csrf,
+    rotate_session_version,
+)
 from .user_controls import USER_CONTROL_KEYS, get_user_controls
 from .user_storage import delete_user_storage, initialize_user_storage, rename_user_storage, usage_bytes, user_root
 
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+ADMIN_LOGIN_ATTEMPT_LIMIT = 8
+ADMIN_LOGIN_ATTEMPT_WINDOW = 300
 
 
 @admin_bp.route("/login", methods=("GET", "POST"))
@@ -22,11 +33,19 @@ def login():
     if request.method == "POST":
         require_csrf()
         identity = request.form.get("identity", "").strip().lower()
+        if rate_limited(f"admin-login:{client_scope()}", ADMIN_LOGIN_ATTEMPT_LIMIT, ADMIN_LOGIN_ATTEMPT_WINDOW):
+            flash("Too many administrator sign-in attempts. Wait a few minutes and try again.", "error")
+            return render_template("admin/login.html"), 429
         user = get_db().execute("SELECT * FROM users WHERE (username = ? OR email = ?) AND is_admin = 1", (identity, identity)).fetchone()
         from .exabyte_oidc import exabyte_access_allowed
-        if user and exabyte_access_allowed(user["id"]) and check_password_hash(user["password_hash"], request.form.get("password", "")):
+        eligible = bool(user and exabyte_access_allowed(user["id"]))
+        password_ok = constant_time_password_check(
+            user["password_hash"] if user else None, request.form.get("password", "")
+        )
+        if eligible and password_ok:
             session.clear()
             session["user_id"] = user["id"]
+            session["session_version"] = user["session_version"]
             import secrets
             session["csrf_token"] = secrets.token_urlsafe(32)
             return redirect(url_for("admin.dashboard"))
@@ -257,6 +276,10 @@ def edit_user(user_id):
             values.append(generate_password_hash(password, method="pbkdf2:sha256:600000"))
         values.append(user_id)
         db.execute(f"UPDATE users SET {', '.join(assignments)} WHERE id = ?", values)
+        if password:
+            # An administrator-set password must displace any session created
+            # with the previous one.
+            rotate_session_version(db, user_id)
         if username != old_username:
             rename_user_storage(old_username, username)
         db.commit()
@@ -475,8 +498,16 @@ def add_admin():
         flash("Enter a valid username, email, and password of at least 10 characters.", "error")
     else:
         db = get_db()
-        cursor = db.execute("INSERT INTO users(username, email, email_verified_at, password_hash, is_admin) VALUES (?, ?, CURRENT_TIMESTAMP, ?, 1)", (username, email, generate_password_hash(password, method="pbkdf2:sha256:600000")))
+        db.execute("INSERT INTO users(username, email, email_verified_at, password_hash, is_admin) VALUES (?, ?, CURRENT_TIMESTAMP, ?, 1)", (username, email, generate_password_hash(password, method="pbkdf2:sha256:600000")))
+        try:
+            # Prepare the workspace before committing so a failed rollback
+            # cannot leave an account without its private storage.
+            initialize_user_storage(username)
+        except (OSError, ValueError):
+            db.rollback()
+            current_app.logger.exception("Could not initialize the private workspace for admin %s", username)
+            flash("The admin could not be created because its private workspace could not be initialized.", "error")
+            return redirect(url_for("admin.dashboard"))
         db.commit()
-        initialize_user_storage(username)
         flash("Admin created.", "success")
     return redirect(url_for("admin.dashboard"))

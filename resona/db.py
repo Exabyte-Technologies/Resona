@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import click
@@ -31,6 +32,23 @@ def close_db(_error=None):
     db = g.pop("db", None)
     if db is not None:
         db.close()
+
+
+def purge_expired_credentials():
+    """Drop spent password-reset and e-mail-verification rows.
+
+    Both tables only ever grow on the write path, so an unauthenticated client
+    repeatedly posting to /auth/forgot could otherwise fill the database. Expired
+    tokens are useless and used tokens are kept only briefly for auditing.
+    """
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    db.execute("DELETE FROM password_resets WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
+    db.execute("DELETE FROM password_resets WHERE used_at IS NOT NULL AND used_at < ?", (cutoff,))
+    db.execute("DELETE FROM email_verifications WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
+    db.execute("DELETE FROM email_verifications WHERE used_at IS NOT NULL AND used_at < ?", (cutoff,))
+    db.commit()
 
 
 def init_db():
@@ -84,6 +102,7 @@ def init_db():
     if model_version != AGENT_MODEL_VERSION:
         db.execute("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'closeai_model'", (DEFAULT_AGENT_MODEL,))
         db.execute("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = 'agent_model_version'", (AGENT_MODEL_VERSION,))
+    purge_expired_credentials()
     db.commit()
 
 
