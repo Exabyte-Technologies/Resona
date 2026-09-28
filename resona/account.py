@@ -6,7 +6,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .captcha import validate_captcha
 from .db import get_db
 from .email_verification import issue_email_verification, verification_resend_wait
-from .security import login_required, require_csrf
+from .security import login_required, require_csrf, rotate_session_version
 from .user_controls import user_control_enabled
 
 
@@ -100,6 +100,7 @@ def update_settings():
             "UPDATE users SET password_hash = ? WHERE id = ?",
             (generate_password_hash(new_password, method="pbkdf2:sha256:600000"), user["id"]),
         )
+        rotate_session_version(db, user["id"], keep_current_session=True)
         db.commit()
         return _response("Your Resona password was updated. Exabyte sign-in remains linked.")
 
@@ -133,6 +134,7 @@ def update_settings():
         db.execute("UPDATE users SET display_name = ? WHERE id = ?", (display_name, user["id"]))
         if new_password:
             db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (generate_password_hash(new_password, method="pbkdf2:sha256:600000"), user["id"]))
+            rotate_session_version(db, user["id"], keep_current_session=True)
         if email != user["email"]:
             token = issue_email_verification(user["id"], display_name, email, "email_change")
             if current_app.testing:

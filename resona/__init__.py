@@ -2,7 +2,7 @@ import os
 import secrets
 from pathlib import Path
 
-from flask import Flask, g, redirect, session, url_for
+from flask import Flask, g, redirect, request, session, url_for
 from flask_session import Session
 from cachelib import SimpleCache
 from redis import Redis
@@ -12,6 +12,22 @@ from .db import close_db, init_app as init_db_app
 
 
 load_dotenv()
+
+
+def _session_cookie_secure():
+    """Default the session cookie to Secure unless the deployment is plainly local.
+
+    An explicit SESSION_COOKIE_SECURE always wins. When it is absent the cookie
+    must not silently fall back to cleartext on a public HTTPS deployment, so we
+    derive it from PUBLIC_BASE_URL and only relax it for http:// origins.
+    """
+    configured = os.getenv("SESSION_COOKIE_SECURE")
+    if configured is not None and configured.strip():
+        return configured.strip() == "1"
+    public_base_url = os.getenv("PUBLIC_BASE_URL", "").strip().lower()
+    if public_base_url.startswith("http://"):
+        return False
+    return True
 
 
 def create_app(test_config=None):
@@ -44,7 +60,7 @@ def create_app(test_config=None):
         ADMIN_EMAIL=os.getenv("ADMIN_EMAIL", "").strip().lower(),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
-        SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "0") == "1",
+        SESSION_COOKIE_SECURE=_session_cookie_secure(),
         SESSION_COOKIE_NAME="resona_session",
         SESSION_PERMANENT=False,
         MAX_CONTENT_LENGTH=8 * 1024 * 1024,
@@ -128,8 +144,13 @@ def create_app(test_config=None):
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-src 'self'; "
-            "worker-src 'self' blob:; font-src 'self'",
+            "worker-src 'self' blob:; font-src 'self'; base-uri 'self'; form-action 'self'; "
+            "frame-ancestors 'self'; object-src 'none'",
         )
+        response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=(), interest-cohort=()")
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        if request.is_secure:
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
 
     @app.context_processor

@@ -3,19 +3,36 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
-from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.security import generate_password_hash
 
-from .db import get_db
+from .db import get_db, purge_expired_credentials
 from .captcha import require_captcha
 from .email_verification import issue_email_verification, verification_record, verification_resend_wait
 from .resend import resend_is_configured, send_password_reset_email, send_welcome_email
-from .security import USERNAME_RE, login_required, require_csrf
+from .security import (
+    USERNAME_RE,
+    client_scope,
+    constant_time_password_check,
+    login_required,
+    rate_limited,
+    require_csrf,
+    rotate_session_version,
+    safe_local_path,
+)
 from .user_controls import user_control_enabled
 from .user_storage import initialize_user_storage
 from .legal import consent_submitted, record_legal_acceptance
 
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+# Credential endpoints are throttled per client and, where an identity is
+# supplied, per identity as well, so a distributed attacker cannot reuse one
+# client budget against many accounts.
+LOGIN_ATTEMPT_LIMIT = 8
+LOGIN_ATTEMPT_WINDOW = 300
+RESET_REQUEST_LIMIT = 5
+RESET_REQUEST_WINDOW = 900
 
 
 def _disabled(title, message):
@@ -83,11 +100,28 @@ def login():
         require_csrf()
         require_captcha()
         identity = request.form.get("identity", "").strip().lower()
+        if rate_limited(f"login:{client_scope()}", LOGIN_ATTEMPT_LIMIT, LOGIN_ATTEMPT_WINDOW):
+            flash("Too many sign-in attempts. Wait a few minutes and try again.", "error")
+            return render_template("auth/login.html", identity=identity), 429
+        if identity and rate_limited(f"login-identity:{identity}", LOGIN_ATTEMPT_LIMIT, LOGIN_ATTEMPT_WINDOW):
+            flash("Too many sign-in attempts for this account. Wait a few minutes and try again.", "error")
+            return render_template("auth/login.html", identity=identity), 429
         user = get_db().execute(
             "SELECT * FROM users WHERE username = ? OR email = ?", (identity, identity)
         ).fetchone()
         from .exabyte_oidc import exabyte_access_allowed
-        if user and user["password_login_enabled"] and exabyte_access_allowed(user["id"]) and (not user["is_demo"] or user["demo_enabled"]) and check_password_hash(user["password_hash"], request.form.get("password", "")):
+        eligible = bool(
+            user
+            and user["password_login_enabled"]
+            and exabyte_access_allowed(user["id"])
+            and (not user["is_demo"] or user["demo_enabled"])
+        )
+        # Always verify a hash so the response time does not disclose whether
+        # the identity exists.
+        password_ok = constant_time_password_check(
+            user["password_hash"] if user else None, request.form.get("password", "")
+        )
+        if eligible and password_ok:
             if user["is_demo"] and not consent_submitted(request.form):
                 flash("Agree to the Terms of Service and acknowledge the Privacy Policy before entering the shared Demo.", "error")
                 return render_template(
@@ -106,10 +140,7 @@ def login():
             session["user_id"] = user["id"]
             session["session_version"] = user["session_version"]
             session["csrf_token"] = secrets.token_urlsafe(32)
-            destination = request.args.get("next", "")
-            if not destination.startswith("/") or destination.startswith("//"):
-                destination = url_for("player.index")
-            return redirect(destination)
+            return redirect(safe_local_path(request.args.get("next", ""), url_for("player.index")))
         flash("The username or password doesn't match.", "error")
     return render_template("auth/login.html", identity=request.form.get("identity", ""))
 
@@ -208,7 +239,16 @@ def forgot():
     reset_token = None
     if request.method == "POST":
         require_csrf()
-        user = get_db().execute("SELECT id, username, email FROM users WHERE email = ? AND is_demo = 0 AND password_login_enabled = 1", (request.form.get("email", "").strip().lower(),)).fetchone()
+        email = request.form.get("email", "").strip().lower()
+        if rate_limited(f"forgot:{client_scope()}", RESET_REQUEST_LIMIT, RESET_REQUEST_WINDOW):
+            flash("Too many password recovery requests. Wait a while and try again.", "error")
+            return render_template("auth/forgot.html"), 429
+        if email and rate_limited(f"forgot-email:{email}", RESET_REQUEST_LIMIT, RESET_REQUEST_WINDOW):
+            # Answer neutrally: revealing the throttle would confirm the address exists.
+            flash("If the address exists, password reset instructions have been sent.", "success")
+            return render_template("auth/forgot.html")
+        purge_expired_credentials()
+        user = get_db().execute("SELECT id, username, email FROM users WHERE email = ? AND is_demo = 0 AND password_login_enabled = 1", (email,)).fetchone()
         if user:
             token = secrets.token_urlsafe(36)
             digest = hashlib.sha256(token.encode()).hexdigest()
@@ -254,6 +294,9 @@ def reset(token):
             db = get_db()
             db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (generate_password_hash(password, method="pbkdf2:sha256:600000"), row["user_id"]))
             db.execute("UPDATE password_resets SET used_at = CURRENT_TIMESTAMP WHERE id = ?", (row["id"],))
+            # A reset is usually requested because a session was compromised, so
+            # every existing session must die with the old password.
+            rotate_session_version(db, row["user_id"])
             db.commit()
             flash("Password updated. You can sign in now.", "success")
             return redirect(url_for("auth.login"))

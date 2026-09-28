@@ -5,7 +5,6 @@ import logging
 import re
 import secrets
 import time
-from urllib.parse import urlsplit
 
 import requests
 from authlib.integrations.base_client.errors import OAuthError
@@ -16,6 +15,7 @@ from werkzeug.security import generate_password_hash
 
 from .db import get_db
 from .security import USERNAME_RE
+from .security import safe_local_path as security_safe_local_path
 from .secret_store import decrypt_setting
 from .user_controls import user_control_enabled
 from .user_storage import delete_user_storage, initialize_user_storage, user_root
@@ -109,11 +109,12 @@ def exabyte_access_allowed(user_id):
 
 
 def safe_local_path(value):
-    candidate = str(value or url_for("player.index"))
-    parsed = urlsplit(candidate)
-    if parsed.scheme or parsed.netloc or not candidate.startswith("/") or candidate.startswith("//"):
-        return url_for("player.index")
-    return candidate
+    """Keep an OIDC post-login destination on this origin.
+
+    Delegates to :func:`resona.security.safe_local_path`, which also rejects the
+    backslash and control-character spellings browsers rewrite into "//host".
+    """
+    return security_safe_local_path(value, url_for("player.index"))
 
 
 def _client():
