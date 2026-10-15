@@ -534,6 +534,7 @@ def test_resend_sends_registration_and_password_reset_emails_without_exposing_se
     client.get("/auth/forgot")
     response = client.post("/auth/forgot", data={
         "csrf_token": session_csrf(client),
+        "cap-token": captcha(),
         "email": "emailuser@example.com",
     })
     assert response.status_code == 200

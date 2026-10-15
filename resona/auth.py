@@ -239,6 +239,7 @@ def forgot():
     reset_token = None
     if request.method == "POST":
         require_csrf()
+        require_captcha()
         email = request.form.get("email", "").strip().lower()
         if rate_limited(f"forgot:{client_scope()}", RESET_REQUEST_LIMIT, RESET_REQUEST_WINDOW):
             flash("Too many password recovery requests. Wait a while and try again.", "error")

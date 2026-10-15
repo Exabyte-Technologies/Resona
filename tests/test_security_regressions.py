@@ -313,3 +313,22 @@ def test_session_cookie_is_secure_by_default():
     os.environ["SESSION_COOKIE_SECURE"] = "1"
     assert _session_cookie_secure() is True
     os.environ.pop("SESSION_COOKIE_SECURE", None)
+
+
+def test_password_recovery_requires_captcha(client, captcha):
+    """/auth/forgot is unauthenticated, so it must be CAPTCHA-gated like
+    login and register; a missing token must never reach the rate limiter
+    or the user lookup."""
+    token = csrf(client)
+    blocked = client.post("/auth/forgot", data={
+        "csrf_token": token,
+        "email": "listener@example.com",
+    })
+    assert blocked.status_code == 400
+
+    allowed = client.post("/auth/forgot", data={
+        "csrf_token": csrf(client),
+        "cap-token": captcha(),
+        "email": "listener@example.com",
+    })
+    assert allowed.status_code == 200
