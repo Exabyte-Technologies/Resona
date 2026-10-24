@@ -33,5 +33,3 @@ jobs:
           # requirements.txt pins exact versions, so the audit is deterministic.
           inputs: requirements.txt
           summary: true
-          # Publishes results to the GitHub Security tab (code scanning).
-          upload-sarif: true
